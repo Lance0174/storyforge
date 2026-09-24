@@ -61,6 +61,7 @@ import { verifyTextOpenWorldCreatorProductionPreflightConfirmationV1 } from '../
 import { useAIConfigStore } from '../../stores/ai-config'
 import {
   assertProductProductionBudgetLedgerV1,
+  prepareLegacyPausedProductBuildV1,
   resolveProductProductionUnknownResultReservationLedgerV2,
 } from './scheduler'
 import {
@@ -141,6 +142,12 @@ interface PausedLedgerReservationV1 {
   attempt: number
   controlEpoch: number
   providerCallPossible: boolean
+}
+
+interface PreparedPausedBuildV1 {
+  before: ProductBuildRecordV1 & { id: number }
+  after: ProductBuildRecordV1 & { id: number }
+  runs: Array<{ id: number; lastSequence: number; contractHash: string; projectionHash: string }>
 }
 
 interface PausedReservationAccountingV1 {
@@ -779,6 +786,7 @@ async function createMediaRevisionPlan(input: {
 }
 
 async function applyCommand(input: {
+  preparedPausedBuild?: PreparedPausedBuildV1 | null
   scope: WorkspaceScope
   production: ProductProductionRecordV1 & { id: number }
   command: ProductProductionCommandV1
@@ -1444,7 +1452,20 @@ async function applyCommand(input: {
 
   if (command.type === 'resume') {
     if (production.status !== 'paused') reject('invalid-state-transition', 'Production 不在暂停态')
-    const build = await currentBuild(production)
+    const persistedBuild = await currentBuild(production)
+    const prepared = input.preparedPausedBuild
+    if (!prepared || canonicalProductProductionJsonV2(persistedBuild)
+      !== canonicalProductProductionJsonV2(prepared.before)) {
+      reject('production-state-conflict', '暂停状态已变化，请重新核对恢复证据')
+    }
+    for (const guard of prepared.runs) {
+      const run = await db.agentRuns.get(guard.id)
+      if (!run || run.lastSequence !== guard.lastSequence || run.contractHash !== guard.contractHash
+        || run.projectionHash !== guard.projectionHash) {
+        reject('production-state-conflict', '暂停请求返回了新证据，请重新核对费用')
+      }
+    }
+    const build = prepared.after
     if (build.status !== 'paused' || !build.resumeState) {
       reject('invalid-state-transition', 'Build 没有可恢复状态')
     }
@@ -1575,6 +1596,9 @@ async function applyCommand(input: {
       failureJson: pausedReservationAccountings.length ? safeJson({
         code: 'user-pause-resolved',
         previousFailureCode: 'pause-provider-result-unknown',
+        resumedFromControlEpoch: build.controlEpoch,
+        pauseReceipt: pausedFailure,
+        ...(Object.keys(previousFailure).length > 0 ? { previousFailure } : {}),
         pausedReservationAccountings,
         resolvedAt: now,
       }) : safeJson({
@@ -2515,6 +2539,7 @@ async function applyCommand(input: {
 }
 
 async function executeTransaction(input: {
+  preparedPausedBuild?: PreparedPausedBuildV1 | null
   scope: WorkspaceScope
   productionId?: number
   command: ProductProductionCommandV1
@@ -2687,6 +2712,7 @@ async function executeTransaction(input: {
         preparedCreatorBrief: input.preparedCreatorBrief,
         preparedCreatorEvidence: input.preparedCreatorEvidence,
         preparedCreatorStart: transactionCreatorStart,
+        preparedPausedBuild: input.preparedPausedBuild,
         preparedCreatorRepair: input.preparedCreatorRepair,
         preparedCreatorRepairAuthorization: input.preparedCreatorRepairAuthorization,
         preparedCreatorMedia: input.preparedCreatorMedia,
@@ -3054,6 +3080,16 @@ export async function executeProductProductionCommand(input: {
       authorizedAt: command.authorizedAt,
     })
   }
+  let preparedPausedBuild: PreparedPausedBuildV1 | null = null
+  if (command.type === 'resume') {
+    const production = await productionInScope(scope, input.productionId!)
+    const before = await currentBuild(production)
+    const runs: PreparedPausedBuildV1['runs'] = []
+    const after = await prepareLegacyPausedProductBuildV1(scope, before, run => {
+      runs.push({ id: run.id, lastSequence: run.lastSequence, contractHash: run.contractHash, projectionHash: run.projectionHash })
+    })
+    preparedPausedBuild = { before, after, runs }
+  }
   const request = {
     scope,
     productionId: input.productionId,
@@ -3066,6 +3102,7 @@ export async function executeProductProductionCommand(input: {
     preparedCreatorBrief,
     preparedCreatorEvidence,
     preparedCreatorStart,
+    preparedPausedBuild,
     preparedCreatorRepair,
     preparedCreatorRepairAuthorization,
     preparedCreatorMedia,

@@ -323,6 +323,75 @@ interface SchedulerLedgerV2 {
   attempts: LedgerAttemptV2[]
 }
 
+/** Read-only compatibility projection for pauses written before durable holds.
+ * The resume command checks the read evidence again inside its transaction. Never infer that
+ * a dispatched request was free from a cancelled Run or a missing response.
+ */
+export async function prepareLegacyPausedProductBuildV1<T extends ProductBuildRecordV1>(
+  scope: WorkspaceScope, build: T,
+  onVerifiedRun?: (run: AgentRunSnapshotV1['run']) => void,
+): Promise<T> {
+  if (build.status !== 'paused') return build
+  const failure = parsedObject(build.failureJson)
+  if (failure.code !== 'user-paused') return build
+  const ledger = parseLedger(build.budgetLedgerJson)
+  const claimed = Object.entries(ledger.tasks).filter(([, task]) => task.status === 'claimed')
+  for (const [taskKey, entry] of claimed) {
+    if (ledger.attempts.some(attempt => attempt.runId === entry.runId && attempt.attempt === entry.attempt)) continue
+    const snapshot = await readAgentRunV1(scope, entry.runId)
+    const binding = snapshot.contract.scope.productProduction
+    const plan = parseProductProductionPlanV3(build.planJson)
+    const task = plan.tasks.find(value => value.taskKey === taskKey)
+    if (!task || !binding || snapshot.run.productBuildId !== build.id
+      || binding.productBuildId !== build.id || binding.buildNumber !== build.buildNumber
+      || binding.taskKey !== taskKey || binding.controlEpoch !== failure.pausedFromControlEpoch
+      || binding.planHash !== build.planHash || plan.controlEpoch !== binding.controlEpoch
+      || await hashProductProductionValueV2(plan) !== build.planHash
+      || snapshot.run.parentRunId !== ledger.rootRunId
+      || snapshot.contract.budget.maxInputTokens !== task.budgetReservation.inputTokens
+      || snapshot.contract.budget.maxOutputTokens !== task.budgetReservation.outputTokens
+      || snapshot.contract.budget.maxModelCalls !== task.budgetReservation.modelCalls) {
+      throw new Error('[product-production-scheduler] 旧暂停 Run 与冻结 Plan/预算不一致，不能恢复')
+    }
+    // A checkpoint/receipt deserves its original settlement path, not an
+    // invented charge. Stop rather than discard verified output evidence.
+    if (snapshot.projection.state === 'completed' || snapshot.run.terminalReceiptHash
+      || snapshot.events.some(event => event.type === 'candidate.persisted')) {
+      throw new Error('[product-production-scheduler] 旧暂停 Run 存在未结算候选，需先恢复原回执')
+    }
+    const requested = snapshot.events.some(event => (
+      (event.type === 'model.requested' || event.type === 'tool.called')
+      && event.payload.stepId === taskKey && event.payload.attempt === entry.attempt
+    ))
+    if (task.executionMode !== 'model' && task.executionMode !== 'deterministic') {
+      throw new Error('[product-production-scheduler] 旧媒资暂停需独立核对 provider 证据')
+    }
+    ledger.attempts.push({
+      taskKey, runId: entry.runId, attempt: entry.attempt,
+      controlEpoch: binding.controlEpoch, idempotencyKey: entry.idempotencyKey,
+      outcome: 'failed', usage: requested ? reservationUsage(task.budgetReservation) : zeroUsage(),
+      usageKnown: !requested, errorCode: requested ? 'provider-result-unknown' : 'author-paused-before-dispatch',
+      ...(!requested ? { resolution: 'system-released-before-dispatch' as const } : {}),
+    })
+    onVerifiedRun?.(snapshot.run)
+  }
+  const reservations = ledger.attempts.filter(attempt => !attempt.usageKnown && attempt.usage
+    && (attempt.usage.modelCalls > 0 || attempt.usage.mediaCalls > 0))
+    .map(({ taskKey, runId, attempt, controlEpoch }) => ({ taskKey, runId, attempt, controlEpoch }))
+  if (claimed.length === 0 && reservations.length === 0) return build
+  return {
+    ...build,
+    budgetLedgerJson: canonicalProductProductionJsonV2(ledger),
+    failureJson: reservations.length ? canonicalProductProductionJsonV2({
+      ...failure,
+      code: 'pause-provider-result-unknown',
+      detail: '旧版暂停遗留未结算请求；恢复前必须按原 Run 和冻结预算逐项封账。',
+      pausedProviderReservations: reservations,
+      legacyPauseReceipt: failure,
+    }) : build.failureJson,
+  }
+}
+
 interface ResumeCandidateV1 {
   schema: 'storyforge.product-production-task-candidate'
   version: 1
@@ -2254,6 +2323,7 @@ async function ensurePlan(input: {
     const pauseResumeRecovery = (() => {
       const failure = parsedObject(state.build.failureJson)
       return failure.code === 'user-paused' || failure.code === 'user-resumed'
+        || failure.code === 'user-pause-resolved'
     })()
     const invalidatedTaskKeys = parentQualityRollback != null || reviewRollbackControlEpoch != null
       ? textAdventureQualityRollbackInvalidatedTaskKeysV1(plan)
@@ -2450,7 +2520,7 @@ export function activeTextAdventureQualityRepairCauseV1(
       && !Array.isArray(previousFailure)
       ? previousFailure as Record<string, unknown> : null
 
-    if (code === 'user-paused' || code === 'user-resumed') {
+    if (code === 'user-paused' || code === 'user-resumed' || code === 'user-pause-resolved') {
       if (!previous) return null
       current = previous
       continue

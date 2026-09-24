@@ -18,6 +18,7 @@ import {
 import { createProductProductionPlanV3 } from '../../src/lib/product-production/plan'
 import {
   assertProductProductionBudgetLedgerV1,
+  prepareLegacyPausedProductBuildV1,
   runProductProductionSchedulerCycleV1,
   runProductProductionUntilBlockedV1,
   ProductProductionDraftRejectedErrorV1,
@@ -2829,6 +2830,77 @@ describe('R-PRODUCTPROD-1D · durable bounded DAG scheduler', () => {
     expect(cancellationPayload.reason).not.toContain('stalecredential999')
     expect(cancellationPayload.reason.length).toBeLessThanOrEqual(1_000)
   }, 30_000)
+
+  it.each(['charge-reservation-upper-bound', 'confirmed-not-charged'] as const)(
+    '旧版暂停缺失 attempt 时从签名 Run 恢复预留，显式 %s 后才允许继续', async disposition => {
+      const owned = await fixture(`scheduler-legacy-pause-${disposition}`)
+      let rejectProvider!: (error: Error) => void
+      let started!: () => void
+      const providerStarted = new Promise<void>(resolve => { started = resolve })
+      const cycle = runProductProductionSchedulerCycleV1({
+        scope: owned.scope, productionId: owned.productionId,
+        executor: async () => {
+          started()
+          return new Promise<ProductProductionTaskExecutionResultV1>((_, reject) => { rejectProvider = reject })
+        },
+        capabilityBindings: [{
+          requirementKey: owned.brief.capabilityRequirements.find(item => item.mediaClass === 'text')!.requirementKey,
+          adapterId: 'configured-text-provider.v1',
+          bindingHash: await hashProductProductionValueV2({ provider: 'configured' }),
+        }],
+      })
+      await providerStarted
+      const original = (await db.productBuilds.where('productionId').equals(owned.productionId).first())!
+      const originalLedger = JSON.parse(original.budgetLedgerJson)
+      const production = (await db.productProductions.get(owned.productionId))!
+      await executeProductProductionCommand({
+        scope: owned.scope, productionId: owned.productionId,
+        command: { type: 'pause', commandId: 'legacy.pause', expectedStateRevision: production.stateRevision, reason: 'test' },
+      })
+      rejectProvider(new Error('author-paused'))
+      await cycle
+      // Reproduce the former persisted format, preserving the real signed Run.
+      originalLedger.attempts = originalLedger.attempts.filter((attempt: { runId: number }) => (
+        attempt.runId !== originalLedger.tasks['content.design'].runId
+      ))
+      await db.productBuilds.update(original.id!, {
+        budgetLedgerJson: canonicalProductProductionJsonV2(originalLedger),
+        failureJson: JSON.stringify({
+          code: 'user-paused', pausedFromControlEpoch: original.controlEpoch,
+          previousFailure: { taskKey: 'content.design', code: 'task-executor-failed', detail: '保留原修复约束' },
+        }),
+      })
+      const persisted = (await db.productBuilds.get(original.id!))!
+      const prepared = await prepareLegacyPausedProductBuildV1(owned.scope, persisted)
+      const reservation = JSON.parse(prepared.failureJson).pausedProviderReservations[0]
+      expect(reservation).toMatchObject({ taskKey: 'content.design', controlEpoch: original.controlEpoch, attempt: 1 })
+      expect(await db.productBuilds.get(original.id!)).toEqual(persisted)
+      await expect(prepareLegacyPausedProductBuildV1(owned.scope, { ...persisted, planHash: '0'.repeat(64) }))
+        .rejects.toThrow('冻结 Plan')
+      const paused = (await db.productProductions.get(owned.productionId))!
+      const denied = await executeProductProductionCommand({
+        scope: owned.scope, productionId: owned.productionId,
+        command: { type: 'resume', commandId: 'legacy.no-decision', expectedStateRevision: paused.stateRevision },
+      })
+      expect(denied.ok).toBe(false)
+      expect((await db.productBuilds.get(original.id!))!.status).toBe('paused')
+      const command = {
+        type: 'resume' as const, commandId: 'legacy.resolved', expectedStateRevision: paused.stateRevision,
+        pausedReservationDispositions: [{ ...reservation, disposition }],
+      }
+      const resumed = await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId, command })
+      expect(resumed.ok).toBe(true)
+      const final = (await db.productBuilds.get(original.id!))!
+      const attempts = JSON.parse(final.budgetLedgerJson).attempts
+      expect(attempts).toHaveLength(1)
+      expect(attempts[0]).toMatchObject({ runId: reservation.runId, usageKnown: true })
+      expect(attempts[0].usage.modelCalls).toBe(disposition === 'confirmed-not-charged' ? 0 : 1)
+      expect(JSON.parse(final.failureJson).pauseReceipt.legacyPauseReceipt.code).toBe('user-paused')
+      expect(textAdventureTaskFailures(final.failureJson).get('content.design')?.detail).toBe('保留原修复约束')
+      expect((await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId, command })).replayed).toBe(true)
+      expect(JSON.parse((await db.productBuilds.get(original.id!))!.budgetLedgerJson).attempts).toEqual(attempts)
+    }, 30_000,
+  )
 
   it('候选检查点后崩溃会从 durable payload 恢复，不重复调用已计费 executor', async () => {
     const owned = await fixture('scheduler-recovery')

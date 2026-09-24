@@ -83,6 +83,7 @@ import { detectProductImageDimensionsV1, detectProductMediaMimeTypeV1 } from './
 import { useAIConfigStore } from '../../stores/ai-config'
 import {
   assertProductProductionBudgetLedgerV1,
+  prepareLegacyPausedProductBuildV1,
   projectProductProductionSchedulerV1,
   recoverImportedProductProductionProofsV1 as recoverImportedProductProductionProofsCoreV1,
   runProductProductionUntilBlockedV1,
@@ -1016,7 +1017,7 @@ export async function readProductProductionDetailsV1(
     production,
     brief: brief ?? null,
     executionBrief,
-    build: build ?? null,
+    build: build ? await prepareLegacyPausedProductBuildV1(scope, build) : null,
     artifactCount: build?.id == null ? 0 : await db.productBuildArtifacts.where('buildId').equals(build.id).count(),
     recentCommands,
     briefHistory,
@@ -1261,6 +1262,7 @@ export async function setProductProductionPausedV1(input: {
   build?: ProductBuildRecordV1 | null
   pausedReservationDisposition?: 'confirmed-not-charged' | 'charge-reservation-upper-bound'
 }): Promise<'paused' | 'resumed'> {
+  if (input.build) input = { ...input, build: await prepareLegacyPausedProductBuildV1(input.scope, input.build) }
   const paused = input.production.status === 'paused'
   let pausedReservationDispositions: Extract<
     import('../types').ProductProductionCommandV1,
