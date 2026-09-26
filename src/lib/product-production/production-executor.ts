@@ -2896,14 +2896,19 @@ function textAdventurePromptVisuallyDepictsCharacterV1(
   const referenceOnly = [
     new RegExp(`(?:证词|日志|档案|记录|回忆|记忆)[^。；\\n]{0,120}${name}`),
     new RegExp(`${name}(?:的(?:目击)?证词|的日志|的档案|的记录|的回忆|的记忆|留下|遗留|保存|曾经|当年)`),
-  ].some(pattern => pattern.test(prompt))
-  if (referenceOnly) return false
-  return [
+  ]
+  const presentAction = [
     new RegExp(`${name}[^。；\\n]{0,36}(?:将|把|站|坐|走|跑|跪|抵达|进入|发现|面对|转身|抬手|伸手|举起|取出|翻开|递出|递给|写下|指向|拿|握|持|穿|靠|睁开眼|睁眼|醒来|苏醒|起身|收回手|触碰|触摸|捧|抱|感受|面向|凝视|表情|眼神|脸|面部|身影|侧面|正面|背影|手臂|双手)`),
     new RegExp(`${name}在(?:画面|前景|中景|近景|远景|场景|房间|大厅|工坊|钟楼|灯塔|海岸|甲板|道路)`),
     new RegExp(`(?:画面|前景|中景|近景|远景|中心|构图)[^。；\\n]{0,64}${name}`),
     new RegExp(`${name}[^。；\\n]{0,24}(?:与|和|同)[^。；\\n]{0,24}(?:并肩|对峙|交谈|行动|站立)`),
-  ].some(pattern => pattern.test(prompt))
+  ]
+  // A historical mention in a different sentence (including an appended
+  // character anchor) must not erase an explicit action in the current scene.
+  return prompt.split(/[。；！？\n]/u).some(sentence => (
+    !referenceOnly.some(pattern => pattern.test(sentence))
+    && presentAction.some(pattern => pattern.test(sentence))
+  ))
 }
 
 function textAdventureNarrativeItemTermsV1(narrative: NarrativeArtifactV1): string[] {

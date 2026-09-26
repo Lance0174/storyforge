@@ -4107,7 +4107,9 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     completeBeatRequirements.visual[9].beatKey = 'beat.act-3.coat'
     const completeBeatAnchors = anchors.map(anchor => anchor.characterKey === 'character.npc.1'
       ? { ...anchor, name: '沉砾', publicIdentity: '58 岁的导师', visualAnchor: '灰白胡茬，右手两根铜制义指，旧工装' }
-      : anchor)
+      : anchor.characterKey === 'character.player'
+        ? { ...anchor, visualAnchor: `${anchor.visualAnchor}；随身物件：沉砾留下的铜制调音钥匙` }
+        : anchor)
     const completeBeats = parseProductMediaRequirementsArtifactV2(
       completeBeatRequirements, owned.brief, completeBeatAnchors, completeBeatNarrative as never,
     )
