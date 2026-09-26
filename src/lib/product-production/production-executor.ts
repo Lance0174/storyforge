@@ -72,7 +72,6 @@ import {
   parseTextAdventureNarrativeArcPlanArtifactV1,
   parseTextAdventureEndingRoutePlanArtifactV1,
   parseTextAdventureMediaAnchorDecisionArtifactV1,
-  normalizeTextAdventureQuestPlanLocationCopyV1,
   parseTextAdventureQuestPlanArtifactV1,
   parseTextAdventureQuestScriptArtifactV2,
   parseTextAdventureSourceDecisionArtifactV1,
@@ -4985,70 +4984,6 @@ type TextAdventureQuestScriptOutcomeAnchorV1 = {
   }[]
 }
 
-export function applyTextAdventureQuestScriptOutcomeAnchorsV1(
-  payload: JsonRecord,
-  anchors: readonly TextAdventureQuestScriptOutcomeAnchorV1[],
-  locationTitles: readonly string[],
-): { payload: JsonRecord; anchoredFields: string[] } {
-  if (!Array.isArray(payload.mainObjectiveScripts) || anchors.length === 0) {
-    return { payload, anchoredFields: [] }
-  }
-  const anchoredFields: string[] = []
-  const sanitizeConsequence = (value: string, expectedLocation: string) => (
-    locationTitles.reduce((current, title) => (
-      title === expectedLocation ? current : current.split(title).join('后续地点')
-    ), value.trim())
-  )
-  const mainObjectiveScripts = payload.mainObjectiveScripts.map((script, scriptIndex) => {
-    if (!script || typeof script !== 'object' || Array.isArray(script)) return script
-    const scriptRecord = script as JsonRecord
-    const anchor = typeof scriptRecord.objectiveKey === 'string'
-      ? anchors.find(candidate => candidate.objectiveKey === scriptRecord.objectiveKey)
-      : anchors[scriptIndex]
-    if (!anchor) return script
-    const nextScript = { ...scriptRecord }
-    if (!Array.isArray(nextScript.alternatives)) return nextScript
-    nextScript.alternatives = nextScript.alternatives.map((alternative, alternativeIndex) => {
-      if (!alternative || typeof alternative !== 'object' || Array.isArray(alternative)) return alternative
-      const alternativeRecord = alternative as JsonRecord
-      const alternativeAnchor = typeof alternativeRecord.alternativeKey === 'string'
-        ? anchor.alternatives.find(candidate => (
-            candidate.alternativeKey === alternativeRecord.alternativeKey
-          ))
-        : anchor.alternatives[alternativeIndex]
-      if (!alternativeAnchor) return alternative
-      const nextAlternative = { ...alternativeRecord }
-      if (!['successText', 'costlySuccessText', 'failureForwardText'].every(
-        field => typeof nextAlternative[field] === 'string' && String(nextAlternative[field]).trim(),
-      )) return nextAlternative
-      const successConsequence = sanitizeConsequence(
-        alternativeAnchor.successConsequence, anchor.locationTitle,
-      )
-      const failureConsequence = sanitizeConsequence(
-        alternativeAnchor.failureForwardConsequence, anchor.locationTitle,
-      )
-      const prefix = `${anchor.locationTitle}，围绕“${anchor.objectiveTitle}”`
-      const outcomeValues = {
-        successText: `${prefix}，你达成了目标：${successConsequence}`,
-        costlySuccessText: alternativeAnchor.cost.trim() && alternativeAnchor.cost.trim() !== '无'
-          ? `${prefix}，你以${alternativeAnchor.cost.trim()}为代价达成了目标：${successConsequence}`
-          : `${prefix}，你在不利局面下勉强达成了目标：${successConsequence}`,
-        failureForwardText: `${prefix}的尝试受挫，但局面仍向前推进：${failureConsequence}`,
-      }
-      for (const [field, value] of Object.entries(outcomeValues)) {
-        if (nextAlternative[field] === value) continue
-        nextAlternative[field] = value
-        anchoredFields.push(
-          `mainObjectiveScripts[${scriptIndex}].alternatives[${alternativeIndex}].${field}`,
-        )
-      }
-      return nextAlternative
-    })
-    return nextScript
-  })
-  return { payload: { ...payload, mainObjectiveScripts }, anchoredFields }
-}
-
 export function textAdventureQuestScriptCountRetryDirectiveV1(
   taskKey: string,
   contextText: string,
@@ -5707,7 +5642,7 @@ function textSystem(
       ? `本 Run 只编译支线与区域事件：mainObjectiveScripts 必须为空；sideQuestScripts 恰好 ${textAdventureQuestScriptIdentityPlan?.sideQuestScripts.length ?? 0} 项，ambientEventScripts 恰好 ${textAdventureQuestScriptIdentityPlan?.ambientEventScripts.length ?? 0} 项。按上游顺序建立全部 entry 后再填 stages，不得仅提交首条。`
       : `本 Run 只编译第 ${boundary.actIndex + 1} 幕${boundary.routeClass === 'single' ? '单解' : '多解'}主线目标：sideQuestScripts 和 ambientEventScripts 必须是空数组；mainObjectiveScripts 必须恰好输出冻结清单中的 ${textAdventureQuestScriptIdentityPlan?.mainObjectiveScripts.length ?? 0} 项，且每个目标的 alternatives 必须逐项覆盖 alternativeKeys，尤其不得把多解目标压成单解。`
     const outcomeAnchors = boundary == null ? ''
-      : `本 Run 每个主线目标的玩家可见结算锚点=${JSON.stringify(textAdventureQuestScriptOutcomeAnchors)}。这是只读输入约束，不是输出字段。逐目标先建立全部 alternatives 骨架；然后让每个 successText、costlySuccessText、failureForwardText 都自然地逐字包含该 objectiveTitle 和 locationTitle，且不得出现其他登记地点标题。successText/costlySuccessText 必须具体实现对应 successConsequence，failureForwardText 必须具体实现对应 failureForwardConsequence；不得把另一目标、另一地点或后续阶段的行动写成当前已完成结果。`
+      : `本 Run 每个主线目标的玩家可见结算锚点=${JSON.stringify(textAdventureQuestScriptOutcomeAnchors)}。这是只读输入约束，不是输出字段。逐目标先建立全部 alternatives 骨架；然后让每个 successText、costlySuccessText、failureForwardText 自然体现该目标的具体行动、发生地与对应后果，不必重复完整任务标题，不得以套话代替场景表达；不得把行动写在其他登记地点。successText/costlySuccessText 必须具体实现对应 successConsequence，failureForwardText 必须具体实现对应 failureForwardConsequence；不得把另一目标、另一地点或后续阶段的行动写成当前已完成结果。`
     return `${common}\n你是任务脚本工程师。你不设计新故事、不修改上游阶段或目标，也不直接写运行状态；你的职责是把已采纳的主线、支线和区域事件计划逐项翻译为受控的检查参数、时间成本与三档结算文本。` +
       runBoundary +
       outcomeAnchors +
@@ -6739,10 +6674,7 @@ async function executeModelTask(input: ProductProductionTaskExecutionInputV1, op
             ambientEventScripts: supplementalPlan('content.adventure-ambient-events'),
           }
         }
-        const mainValue = normalizeTextAdventureQuestPlanLocationCopyV1({
-          value: artifactPayload(input, 'content.main-quest-plan'),
-          locationTitles: textAdventureLocationTitles,
-        }).value as JsonRecord
+        const mainValue = artifactPayload(input, 'content.main-quest-plan') as JsonRecord
         const quests = Array.isArray(mainValue.quests) ? mainValue.quests : []
         const mainQuest = quests[0] && typeof quests[0] === 'object' && !Array.isArray(quests[0])
           ? quests[0] as JsonRecord : {}
@@ -6813,10 +6745,7 @@ async function executeModelTask(input: ProductProductionTaskExecutionInputV1, op
     questScriptModelTask && input.task.taskKey !== TEXT_ADVENTURE_QUEST_SCRIPT_SUPPLEMENTAL
       && textAdventureQuestScriptIdentityPlan
       ? (() => {
-          const mainValue = normalizeTextAdventureQuestPlanLocationCopyV1({
-            value: artifactPayload(input, 'content.main-quest-plan'),
-            locationTitles: textAdventureLocationTitles,
-          }).value as JsonRecord
+          const mainValue = artifactPayload(input, 'content.main-quest-plan') as JsonRecord
           const quests = Array.isArray(mainValue.quests) ? mainValue.quests : []
           const mainQuest = quests[0] && typeof quests[0] === 'object' && !Array.isArray(quests[0])
             ? quests[0] as JsonRecord : {}
@@ -7088,14 +7017,9 @@ async function executeModelTask(input: ProductProductionTaskExecutionInputV1, op
     sceneScriptChoiceFallbacks: textAdventureSceneScriptChoiceFallbacks,
     dialogueReviewContract: textAdventureDialogueReviewContract,
   })
-  const questScriptOutcomeAnchoring = questScriptModelTask
-    ? applyTextAdventureQuestScriptOutcomeAnchorsV1(
-        legalized.payload,
-        textAdventureQuestScriptOutcomeAnchors,
-        textAdventureLocationTitles,
-      )
-    : { payload: legalized.payload, anchoredFields: [] }
-  const raw = questScriptOutcomeAnchoring.payload
+  // Player-visible prose remains authored content. Validate mismatches below;
+  // never replace three outcome variants with a deterministic synopsis.
+  const raw = legalized.payload
   let payload: unknown
   let kind: ProductProductionTaskArtifactV1['kind']
   let quality: unknown
@@ -7245,12 +7169,8 @@ async function executeModelTask(input: ProductProductionTaskExecutionInputV1, op
       storyBible,
       locationTitles: textAdventureLocationTitles,
     })
-    const locationCopyNormalization = normalizeTextAdventureQuestPlanLocationCopyV1({
-      value: raw,
-      locationTitles: textAdventureLocationTitles,
-    })
     const mainQuestPlan = parseTextAdventureQuestPlanArtifactV1({
-      value: locationCopyNormalization.value,
+      value: raw,
       brief: options.brief,
       arcPlan,
       cast,
@@ -7264,8 +7184,6 @@ async function executeModelTask(input: ProductProductionTaskExecutionInputV1, op
       mainQuestPlanVerified: true,
       stageCount: mainQuestPlan.quests[0].stages.length,
       objectiveCount: mainQuestPlan.quests[0].objectives.length,
-      deterministicLocationCopyRepaired: locationCopyNormalization.repairedFields.length > 0,
-      deterministicLocationCopyRepairedFields: locationCopyNormalization.repairedFields,
     }
   } else if (questScriptModelTask) {
     if (!options.brief.textAdventure) fail('文字冒险任务脚本缺少专用 Brief')
@@ -7363,8 +7281,6 @@ async function executeModelTask(input: ProductProductionTaskExecutionInputV1, op
         : `main-act-${questScriptBoundary.actIndex + 1}-${questScriptBoundary.routeClass}`,
       mainObjectiveScriptCount: questScript.mainObjectiveScripts.length,
       supplementalScriptCount: questScript.sideQuestScripts.length + questScript.ambientEventScripts.length,
-      deterministicOutcomeAnchorsApplied: questScriptOutcomeAnchoring.anchoredFields.length > 0,
-      deterministicOutcomeAnchoredFields: questScriptOutcomeAnchoring.anchoredFields,
     }
   } else if (sceneScriptBoundary != null) {
     if (!options.brief.textAdventure) fail('文字冒险分场脚本缺少专用 Brief')

@@ -1176,11 +1176,6 @@ export interface TextAdventureQuestPlanArtifactV1 {
   }>
 }
 
-export interface TextAdventureQuestPlanLocationCopyNormalizationV1 {
-  value: unknown
-  repairedFields: string[]
-}
-
 const TEXT_ADVENTURE_LOCATION_KIND_ALIASES_V1 = [
   '档案库', '观潮台', '灯塔', '酒馆', '祭坛', '渔村', '工坊', '观测站',
   '海井', '广场', '废墟', '遗址', '洞窟', '宫殿', '车站', '港口', '码头',
@@ -1227,83 +1222,6 @@ export function textAdventureConflictingLocationAliasesV1(input: {
   return [...candidates].sort((left, right) => right.length - left.length || left.localeCompare(right))
 }
 
-/**
- * A quest objective's scene binding and locationOrdinal are the frozen spatial
- * authority. Model-written copy is presentation data and must not silently
- * move the action to another registered location. Keep the repair narrow:
- * current-objective prose is rebound to the authoritative location, while
- * consequence prose neutralizes a conflicting future-place mention rather
- * than pretending that the future action has already happened here.
- */
-export function normalizeTextAdventureQuestPlanLocationCopyV1(input: {
-  value: unknown
-  locationTitles: readonly string[]
-}): TextAdventureQuestPlanLocationCopyNormalizationV1 {
-  if (!input.value || typeof input.value !== 'object' || Array.isArray(input.value)
-    || input.locationTitles.length === 0) {
-    return { value: input.value, repairedFields: [] }
-  }
-  const root = structuredClone(input.value) as Record<string, unknown>
-  if (!Array.isArray(root.quests)) return { value: input.value, repairedFields: [] }
-  const repairedFields: string[] = []
-  const replaceConflictingLocations = (
-    value: unknown,
-    expectedLocation: string,
-    replacement: string,
-    path: string,
-  ): unknown => {
-    if (typeof value !== 'string') return value
-    let next = value
-    for (const alias of textAdventureConflictingLocationAliasesV1({
-      text: next,
-      expectedLocation,
-      locationTitles: input.locationTitles,
-    })) {
-      next = next.split(alias).join(replacement)
-    }
-    if (next !== value) repairedFields.push(path)
-    return next
-  }
-  root.quests.forEach((questValue, questIndex) => {
-    if (!questValue || typeof questValue !== 'object' || Array.isArray(questValue)) return
-    const quest = questValue as Record<string, unknown>
-    if (!Array.isArray(quest.objectives)) return
-    quest.objectives.forEach((objectiveValue, objectiveIndex) => {
-      if (!objectiveValue || typeof objectiveValue !== 'object' || Array.isArray(objectiveValue)) return
-      const objective = objectiveValue as Record<string, unknown>
-      if (!Number.isSafeInteger(objective.locationOrdinal)) return
-      const expectedLocation = input.locationTitles[Number(objective.locationOrdinal) - 1]
-      if (!expectedLocation) return
-      const objectivePath = `quests[${questIndex}].objectives[${objectiveIndex}]`
-      objective.title = replaceConflictingLocations(
-        objective.title, expectedLocation, expectedLocation, `${objectivePath}.title`,
-      )
-      objective.narrativePurpose = replaceConflictingLocations(
-        objective.narrativePurpose, expectedLocation, expectedLocation, `${objectivePath}.narrativePurpose`,
-      )
-      if (!Array.isArray(objective.alternatives)) return
-      objective.alternatives.forEach((alternativeValue, alternativeIndex) => {
-        if (!alternativeValue || typeof alternativeValue !== 'object' || Array.isArray(alternativeValue)) return
-        const alternative = alternativeValue as Record<string, unknown>
-        const alternativePath = `${objectivePath}.alternatives[${alternativeIndex}]`
-        alternative.successConsequence = replaceConflictingLocations(
-          alternative.successConsequence,
-          expectedLocation,
-          '后续地点',
-          `${alternativePath}.successConsequence`,
-        )
-        alternative.failureForwardConsequence = replaceConflictingLocations(
-          alternative.failureForwardConsequence,
-          expectedLocation,
-          '后续地点',
-          `${alternativePath}.failureForwardConsequence`,
-        )
-      })
-    })
-  })
-  return { value: root, repairedFields }
-}
-
 export function parseTextAdventureQuestPlanArtifactV1(input: {
   value: unknown
   brief: ProductProductionBriefV3
@@ -1315,13 +1233,7 @@ export function parseTextAdventureQuestPlanArtifactV1(input: {
   locationTitles?: readonly string[]
 }): TextAdventureQuestPlanArtifactV1 {
   if (!input.brief.textAdventure) fail('任务计划缺少文字冒险 Brief')
-  const normalized = input.locationTitles
-    ? normalizeTextAdventureQuestPlanLocationCopyV1({
-        value: input.value,
-        locationTitles: input.locationTitles,
-      }).value
-    : input.value
-  const row = record(normalized, `${input.expectedKind}QuestPlan`)
+  const row = record(input.value, `${input.expectedKind}QuestPlan`)
   exactKeys(row, ['schema', 'version', 'bundleKind', 'quests'], `${input.expectedKind}QuestPlan`)
   if (row.schema !== 'storyforge.text-adventure-quest-plan-artifact' || row.version !== 1
     || row.bundleKind !== input.expectedKind) fail('任务计划 schema/version/kind 无效')
@@ -1372,6 +1284,16 @@ export function parseTextAdventureQuestPlanArtifactV1(input: {
           .filter(scene => parsedSceneKeys.includes(scene.key))
         if (sceneCards.some(scene => scene.locationOrdinal !== locationOrdinal)) {
           fail(`objectives[${objectiveIndex}] 地点与引用场景不一致`)
+        }
+        // A wrong location is a narrative error, not a spelling alias to
+        // rewrite. Preserve the candidate and let its owner revise it.
+        // Purpose/consequences may refer to evidence from another location;
+        // keyword matching cannot treat that reference as actual movement.
+        const expectedLocation = input.locationTitles?.[locationOrdinal - 1]
+        if (expectedLocation) for (const field of ['title'] as const) {
+          if (typeof objective[field] === 'string' && textAdventureConflictingLocationAliasesV1({
+            text: objective[field] as string, expectedLocation, locationTitles: input.locationTitles!,
+          }).length > 0) fail(`objectives[${objectiveIndex}].${field} 文案与冻结地点不一致`)
         }
         const alternatives = array(objective.alternatives, `objectives[${objectiveIndex}].alternatives`, 1, 5)
           .map((value, alternativeIndex) => {

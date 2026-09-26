@@ -20,6 +20,7 @@ const TEXT_ADVENTURE_AUTHOR_REPAIR_TASKS = new Map<string, string>([
   ['content.narrative-arc-scenes', 'text-adventure.narrative-design.v1'],
   ['content.narrative-decision-plan', 'text-adventure.narrative-design.v1'],
   ['content.ending-route-plan', 'text-adventure.ending-route-plan.v1'],
+  ['content.main-quest-plan', 'text-adventure.production-mainline.v1'],
   ['content.design', 'text-adventure.creative-direction.v1'],
   ['content.product-module', 'text-adventure.production-systems.v1'],
   ['content.adventure-side-quests', 'text-adventure.production-side-quests.v1'],

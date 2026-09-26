@@ -42,7 +42,6 @@ import {
   textAdventureQuestScriptLocationRetryDirectiveV1,
   textAdventureQuestScriptResolutionRetryDirectiveV1,
   textAdventureQuestScriptRootRetryDirectiveV1,
-  applyTextAdventureQuestScriptOutcomeAnchorsV1,
   textAdventureArchitectureLocationRetryDirectiveV1,
   textAdventureEndingRoutePartitionRetryDirectiveV1,
   textAdventureRepairBaselineDirectiveV1,
@@ -1508,45 +1507,6 @@ describe('R-PRODUCTPROD-1F · provider JSON response normalization', () => {
     expect(textAdventureQuestScriptRootRetryDirectiveV1(
       'content.main-quest-plan', feedback,
     )).toBe('')
-  })
-
-  it('任务脚本三档玩家文本由上游目标、地点和后果确定性装配，消除跨目标串台', () => {
-    const result = applyTextAdventureQuestScriptOutcomeAnchorsV1({
-      schema: 'storyforge.text-adventure-quest-script-artifact', version: 2,
-      mainObjectiveScripts: [{
-        objectiveKey: 'objective.archive', sceneKey: 'scene.007',
-        alternatives: [{
-          alternativeKey: 'alternative.archive.look', resolution: {}, timeCostMinutes: 8,
-          successText: '你在观潮台完成了另一个目标。',
-          costlySuccessText: '你仍在观潮台。', failureForwardText: '你去了观潮台。',
-        }],
-      }],
-      sideQuestScripts: [], ambientEventScripts: [],
-    }, [{
-      objectiveKey: 'objective.unrelated', objectiveTitle: '无关目标',
-      locationTitle: '观潮台', alternatives: [{
-        alternativeKey: 'alternative.unrelated', cost: '无',
-        successConsequence: '无关成功。', failureForwardConsequence: '无关失败。',
-      }],
-    }, {
-      objectiveKey: 'objective.archive', objectiveTitle: '找到原始供能记录',
-      locationTitle: '议会档案库',
-      alternatives: [{
-        alternativeKey: 'alternative.archive.look', cost: '消耗体力',
-        successConsequence: '你找到了原始记录，下一步需要去观潮台核对。',
-        failureForwardConsequence: '只找到残页，但线索没有中断。',
-      }],
-    }], ['议会档案库', '观潮台'])
-    const alternative = ((result.payload.mainObjectiveScripts as JsonRecord[])[0]
-      .alternatives as JsonRecord[])[0]
-    expect(alternative.successText).toContain('议会档案库')
-    expect(alternative.successText).toContain('找到原始供能记录')
-    expect(alternative.successText).toContain('后续地点核对')
-    expect(alternative.successText).not.toContain('观潮台')
-    expect(alternative.costlySuccessText).toContain('消耗体力为代价')
-    expect(alternative.failureForwardText).toContain('线索没有中断')
-    expect(alternative.successText).not.toContain('无关目标')
-    expect(result.anchoredFields).toHaveLength(3)
   })
 
   it('文字冒险出图默认禁止文字，文字类返修同时下发双语强约束', () => {
@@ -4622,7 +4582,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     ])
   }, 30_000)
 
-  it.each(['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan'] as const)('%s 暂停后修订已验收内容：绑定命令与原稿，只使后代失效，作者正文零模型采纳', async (revisionKey) => {
+  it.each(['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan', 'content.main-quest-plan', 'content.adventure-side-quests', 'content.adventure-ambient-events'] as const)('%s 暂停后修订已验收内容：绑定命令与原稿，只使后代失效，作者正文零模型采纳', async (revisionKey) => {
     const owned = await fixtureForProduct('text-adventure', { scale: 'short-arc', visualLevel: 'none', omitWorldArtifacts: true })
     const requirement = owned.brief.capabilityRequirements.find(item => item.mediaClass === 'text')!
     const bindingHash = 'a'.repeat(64)
@@ -4633,7 +4593,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     const runText: ProductionTextRunnerV1 = async request => {
       const key = Object.keys(outputs).find(key => request.system.includes(`任务=${key}。`))!
       calls.push(key)
-      if (key === ({ 'content.story-bible': 'content.cast-bible', 'content.cast-bible': 'content.adventure-architecture', 'content.adventure-architecture': 'content.narrative-arc-scenes', 'content.narrative-arc-scenes': 'content.narrative-decision-plan', 'content.narrative-decision-plan': 'content.ending-route-plan', 'content.ending-route-plan': 'content.main-quest-plan' }[revisionKey]) && pauseOnce) {
+      if (key === ({ 'content.story-bible': 'content.cast-bible', 'content.cast-bible': 'content.adventure-architecture', 'content.adventure-architecture': 'content.narrative-arc-scenes', 'content.narrative-arc-scenes': 'content.narrative-decision-plan', 'content.narrative-decision-plan': 'content.ending-route-plan', 'content.ending-route-plan': 'content.main-quest-plan', 'content.main-quest-plan': 'content.adventure-side-quests', 'content.adventure-side-quests': 'content.quest-script.main.act-1.single', 'content.adventure-ambient-events': 'content.quest-script.main.act-1.single' }[revisionKey]) && pauseOnce) {
         pauseOnce = false
         expect((await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId,
           command: { type: 'pause', commandId: 'story-revision.pause',
@@ -4664,7 +4624,9 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     else if (revisionKey === 'content.adventure-architecture') edited.regions[0].description = '潮汐推动的岛群，居民以互助维持航路。'
     else if (revisionKey === 'content.narrative-arc-scenes') edited.acts[0].sceneCards[0].purpose = '先呈现可见风险，再让玩家选择实际行动。'
     else if (revisionKey === 'content.narrative-decision-plan') edited.decisions[0].prompt = '两种行动都付出代价，你愿意先承担哪一种？'
-    else edited.routes[0].rationale = '此前的持续承诺使这个结局成为具体行动的结果。'
+    else if (revisionKey === 'content.ending-route-plan') edited.routes[0].rationale = '此前的持续承诺使这个结局成为具体行动的结果。'
+    else if (revisionKey === 'content.main-quest-plan') edited.quests[0].description = '让此前的承诺在实际行动与代价中得到兑现。'
+    else edited.entries[0].description = '具体的援助留下可以追踪的后果。'
     const revision = { artifactKey: revisionKey, expectedArtifactVersion: baseline.version,
       expectedArtifactHash: baseline.contentHash, note: '纠正故事的情绪承诺，不改变世界事实',
       authorDraftJson: JSON.stringify(edited) }
@@ -4718,7 +4680,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     expect(events.some(event => event.type === 'model.requested')).toBe(false)
   }, 60_000)
 
-  it.each(['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan', 'content.product-module', 'content.adventure-side-quests', 'content.adventure-ambient-events'])('%s 作者修订走相同校验和持久回执，不伪造模型调用，并拒绝错任务或无效内容', async (repairTaskKey) => {
+  it.each(['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan', 'content.main-quest-plan', 'content.product-module', 'content.adventure-side-quests', 'content.adventure-ambient-events'])('%s 作者修订走相同校验和持久回执，不伪造模型调用，并拒绝错任务或无效内容', async (repairTaskKey) => {
     const owned = await fixtureForProduct('text-adventure', {
       scale: 'short-arc', visualLevel: 'none', omitWorldArtifacts: true,
     })
@@ -6736,6 +6698,12 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
       projection,
       `full-length text-adventure projection:\n${JSON.stringify(projection, null, 2)}\nfailure=${projectedBuild?.failureJson}`,
     ).toMatchObject({ terminal: true, buildStatus: 'release-ready' })
+    // The formal executor must preserve provider-authored outcome prose;
+    // semantic validation cannot replace it with an upstream synopsis.
+    const authoredQuestPart = outputs['content.quest-script.main.act-1.single'] as { mainObjectiveScripts: unknown[] }
+    const adoptedQuestPart = (await db.productBuildArtifacts.where('buildId').equals(projection.buildId).toArray())
+      .find(row => row.artifactKey === 'content.quest-script.main.act-1.single' && row.status === 'accepted')!
+    expect(JSON.parse(adoptedQuestPart.payloadJson).mainObjectiveScripts).toEqual(authoredQuestPart.mainObjectiveScripts)
     expect(sceneScriptSystems).toHaveLength(7)
     const actOneSceneSystem = sceneScriptSystems.find(system => (
       system.includes('任务=content.scene-script.act-1.part-1')
@@ -6852,7 +6820,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     expect(questScriptSystem).toContain('本 Run 每个主线目标的玩家可见结算锚点=')
     expect(questScriptSystem).toContain('objectiveTitle')
     expect(questScriptSystem).toContain('locationTitle')
-    expect(questScriptSystem).toContain('逐字包含该 objectiveTitle 和 locationTitle')
+    expect(questScriptSystem).toContain('不必重复完整任务标题，不得以套话代替场景表达')
     expect(dialoguePassSystems).toHaveLength(3)
     expect(dialoguePassSystems[0]).toContain('独立对白编辑，不是分场作者')
     expect(dialoguePassSystems[0]).toContain('使用序号差量协议')
@@ -7461,8 +7429,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     expect(firstMainAlternative).toMatchObject({
       rule: { kind: 'random', abilityKey: 'ability.perception', difficulty: 10, costlySuccessFloor: 6 },
     })
-    expect(firstMainAlternative.successText).toContain('围绕“主线目标 1”')
-    expect(firstMainAlternative.successText).toContain('目标完成并让后续人物态度发生可见变化')
+    expect(firstMainAlternative.successText).toBe('你完成了主线目标 1，主线获得清晰进展。')
     expect(runtimePackage.adventure.items).toContainEqual(expect.objectContaining({
       key: 'item.product.field-notes', tags: expect.arrayContaining(['product-private']),
     }))

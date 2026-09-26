@@ -256,7 +256,7 @@ describe('PRODUCT-PROD-1E · recovery policy UI', () => {
 
   afterAll(() => db.close())
 
-  it.each([['content.story-bible', '载入故事圣经'], ['content.adventure-architecture', '载入地点架构'], ['content.narrative-arc-scenes', '载入三幕场景计划'], ['content.narrative-decision-plan', '载入玩家决定'], ['content.ending-route-plan', '载入结局路线']])('暂停中的 %s 编辑载入准确原稿，修改理由必填且提交绑定原hash', async (artifactKey, loadLabel) => {
+  it.each([['content.story-bible', '载入故事圣经'], ['content.adventure-architecture', '载入地点架构'], ['content.narrative-arc-scenes', '载入三幕场景计划'], ['content.narrative-decision-plan', '载入玩家决定'], ['content.ending-route-plan', '载入结局路线'], ['content.main-quest-plan', '载入主线任务'], ['content.adventure-side-quests', '载入支线任务'], ['content.adventure-ambient-events', '载入区域事件']])('暂停中的 %s 编辑载入准确原稿，修改理由必填且提交绑定原hash', async (artifactKey, loadLabel) => {
     const f = await seedTextAdventureMediaRevisionWorkbenchV1('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X8WgWQAAAABJRU5ErkJggg==')
     const build = (await db.productBuilds.get(f.parentBuildId))!
     await db.productBuilds.update(f.parentBuildId, {

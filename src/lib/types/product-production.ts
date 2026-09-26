@@ -706,7 +706,7 @@ export interface ProductProductionBlockerResolutionV1 {
 
 /** Explicit replacement bound to one accepted story or cast artifact. */
 export interface TextAdventureContentRevisionV1 {
-  artifactKey: 'content.story-bible' | 'content.cast-bible' | 'content.adventure-architecture' | 'content.narrative-arc-scenes' | 'content.narrative-decision-plan' | 'content.ending-route-plan';
+  artifactKey: 'content.story-bible' | 'content.cast-bible' | 'content.adventure-architecture' | 'content.narrative-arc-scenes' | 'content.narrative-decision-plan' | 'content.ending-route-plan' | 'content.main-quest-plan' | 'content.adventure-side-quests' | 'content.adventure-ambient-events';
   expectedArtifactVersion: number;
   expectedArtifactHash: string;
   note: string;
