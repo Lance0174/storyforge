@@ -151,7 +151,7 @@ export async function validateProductProductionRecoveryDirectiveV1(input: {
   if (failureState.code === 'author-revised-content') {
     const command = parseProductProductionCommandV1(failureState.revisionCommand)
     if (production.productType !== 'text-adventure' || input.expectedState === 'blocked'
-      || action !== 'author-edit' || !['content.story-bible', 'content.cast-bible'].includes(input.productProductionTaskKey)
+      || action !== 'author-edit' || !['content.story-bible', 'content.cast-bible', 'content.adventure-architecture'].includes(input.productProductionTaskKey)
       || command.type !== 'resume' || !command.contentRevision || command.contentRevision.artifactKey !== input.productProductionTaskKey
       || command.commandId !== failureState.commandId) {
       throw new ProductProductionRecoveryDirectiveErrorV1('[product-production-context] 内容修订缺少准确的恢复命令')
@@ -1545,8 +1545,9 @@ export async function readTextAdventureRepairFeedbackV1(input: AssembleContextIn
       if (Object.keys(row).length > 0) pending.push(row)
     }
   }
+  const buildArtifacts = await db.productBuildArtifacts.where('buildId').equals(build.id!).toArray()
   const reviews = (failure || ['producing', 'paused'].includes(production.status))
-    ? (await db.productBuildArtifacts.where('buildId').equals(build.id!).toArray())
+    ? buildArtifacts
     .filter(row => row.artifactKey === 'quality.adventure-review'
       && row.controlEpoch < build.controlEpoch)
     .sort((left, right) => right.controlEpoch - left.controlEpoch || right.version - left.version)
@@ -1573,7 +1574,7 @@ export async function readTextAdventureRepairFeedbackV1(input: AssembleContextIn
     payload: unknown
   }>()
   const reviewedControlEpoch = review?.controlEpoch ?? Math.max(0, build.controlEpoch - 1)
-  for (const row of (await db.productBuildArtifacts.where('buildId').equals(build.id!).toArray())
+  for (const row of buildArtifacts
     .filter(row => row.controlEpoch <= reviewedControlEpoch
       // `ensurePlan` invalidates stale descendants before the first repair
       // Agent assembles context. Historical status therefore cannot tell us
@@ -1920,16 +1921,33 @@ export async function readTextAdventureRepairFeedbackV1(input: AssembleContextIn
     `${issue.ownerArtifactKey}\n${issue.detail}\n${issue.recommendation}`, issue,
   ] as const)).values()].slice(0, 40)
   if (blockingIssues.length === 0 && taskFailures.size === 0 && !authorRepairNote) return ''
-  const baselineArtifact = targetTaskKey == null ? null : latestArtifacts.get(targetTaskKey) ?? null
+  let baselineArtifact = targetTaskKey == null ? null : latestArtifacts.get(targetTaskKey) ?? null
+  // A historical draft is only a local-repair baseline while its upstream
+  // content is unchanged. Otherwise the strict copy-baseline instruction can
+  // silently undo an authored story/cast revision or restore an old scene map.
+  const changedBaselineInputs = baselineArtifact == null ? [] : (input.productArtifactKeys ?? []).flatMap(artifactKey => {
+    const signedRows = buildArtifacts.filter(row => row.artifactKey === artifactKey
+      && isSha256Hash(row.contentHash) && isSha256Hash(row.producerReceiptHash))
+      .sort((a, b) => b.controlEpoch - a.controlEpoch || b.version - a.version)
+    const previous = signedRows.find(row => row.controlEpoch <= baselineArtifact!.controlEpoch)
+    const current = signedRows.find(row => row.controlEpoch === build.controlEpoch
+      && (row.status === 'accepted' || row.status === 'carried-forward'))
+    return previous && current && previous.contentHash !== current.contentHash
+      ? [{ artifactKey, previousHash: previous.contentHash, currentHash: current.contentHash }] : []
+  })
+  if (changedBaselineInputs.length > 0) baselineArtifact = null
   return JSON.stringify({
     schema: 'storyforge.text-adventure-repair-feedback', version: 1,
     targetTaskKey, authorRepairNote,
-    source: review ? {
+    source: review && changedBaselineInputs.length === 0 ? {
       artifactKey: review.artifactKey, artifactVersion: review.version,
       contentHash: review.contentHash, producerReceiptHash: review.producerReceiptHash,
       controlEpoch: review.controlEpoch,
     } : null,
-    instruction: 'blockingIssues 已按 repairTaskKeys 精确投影给 targetTaskKey；只修复当前任务实际拥有的字段和 lastTaskFailures 中同 taskKey 的协议错误。ownerArtifactKey 是对外聚合工件，repairTaskKeys 才是专业返修职责。baselineArtifact 是上一轮已验收的完整本任务工件。分场质量返修使用执行器声明的精确字段补丁协议，由规则层合并底稿；补丁协议错误仍继续提交补丁，只有正文体量、图结构、身份或结局覆盖等底稿结构错误才提交完整工件。两种模式都必须保持冻结 Brief、架构、稳定 key 与未受影响内容。',
+    instruction: changedBaselineInputs.length > 0
+      ? '当前上游工件已改变，旧正文及基于旧正文的审查不能作为本次底稿。按当前冻结输入重新生成完整工件，并修复 lastTaskFailures 中本任务的协议错误；不得从历史版本恢复过期故事、角色或地点顺序。'
+      : 'blockingIssues 已按 repairTaskKeys 精确投影给 targetTaskKey；只修复当前任务实际拥有的字段和 lastTaskFailures 中同 taskKey 的协议错误。ownerArtifactKey 是对外聚合工件，repairTaskKeys 才是专业返修职责。baselineArtifact 是上一轮已验收的完整本任务工件。分场质量返修使用执行器声明的精确字段补丁协议，由规则层合并底稿；补丁协议错误仍继续提交补丁，只有正文体量、图结构、身份或结局覆盖等底稿结构错误才提交完整工件。两种模式都必须保持冻结 Brief、架构、稳定 key 与未受影响内容。',
+    ...(changedBaselineInputs.length > 0 ? { changedBaselineInputs } : {}),
     baselineArtifact: baselineArtifact == null ? null : {
       artifactKey: baselineArtifact.artifactKey,
       artifactVersion: baselineArtifact.version,
@@ -1937,8 +1955,8 @@ export async function readTextAdventureRepairFeedbackV1(input: AssembleContextIn
       contentHash: baselineArtifact.contentHash,
       payload: baselineArtifact.payload,
     },
-    scores: payload.scores,
-    blockingIssues,
+    scores: changedBaselineInputs.length > 0 ? undefined : payload.scores,
+    blockingIssues: changedBaselineInputs.length > 0 ? [] : blockingIssues,
     lastTaskFailures: [...taskFailures.values()].sort((left, right) => left.taskKey.localeCompare(right.taskKey)),
   })
 }

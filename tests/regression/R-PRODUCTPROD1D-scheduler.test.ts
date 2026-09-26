@@ -2240,6 +2240,43 @@ describe('R-PRODUCTPROD-1D · durable bounded DAG scheduler', () => {
     expect(calls.size).toBe(0)
   })
 
+  it.each([false, true])('返修底稿服从当前上游 hash，变化=%s 时不恢复旧角色稿', async changed => {
+    const f = await textAdventureQualityRecoveryFixture(`repair-baseline-upstream-${changed}`)
+    const taskKey = 'content.cast-bible'
+    const put = async (artifactKey: string, controlEpoch: number, payload: object) => acceptProductBuildArtifact({
+      scope: f.scope, buildId: f.build.id!, controlEpoch, artifactKey, kind: 'product-design',
+      payload, inputHash: '1'.repeat(64), producerReceiptHash: '2'.repeat(64),
+    })
+    const story = await put('content.story-bible', f.build.controlEpoch, { fact: '旧故事' })
+    const cast = await put(taskKey, f.build.controlEpoch, { characters: [{ name: '旧角色', role: 'major-npc' }] })
+    await put('content.product-module', f.build.controlEpoch, { unrelated: '原值' })
+    const nextEpoch = f.build.controlEpoch + 1
+    await db.productBuilds.update(f.build.id!, { controlEpoch: nextEpoch })
+    const current = await put('content.story-bible', nextEpoch, { fact: changed ? '作者新故事' : '旧故事' })
+    await put('content.product-module', nextEpoch, { unrelated: '新值' })
+    const detail = '角色条目缺少 visualAnchor，须提交完整角色工件。'
+    await db.productBuilds.update(f.build.id!, { controlEpoch: nextEpoch,
+      failureJson: canonicalProductProductionJsonV2({ blockerKey: taskKey,
+        resolution: { action: 'retry', note: '按当前冻结故事修复' },
+        previousFailure: { taskKey, code: 'task-executor-failed', attempt: 1, detail } }) })
+    const feedback = JSON.parse(await readTextAdventureRepairFeedbackV1({
+      projectId: f.scope.projectId, scope: f.scope, productProductionId: f.productionId,
+      productBuildId: f.build.id!, productProductionTaskKey: taskKey,
+      productArtifactKeys: ['content.story-bible'],
+    }))
+    expect(feedback.lastTaskFailures).toEqual([expect.objectContaining({ taskKey, detail })])
+    if (changed) {
+      expect(feedback.baselineArtifact).toBeNull()
+      expect(feedback.changedBaselineInputs).toEqual([{ artifactKey: 'content.story-bible',
+        previousHash: story.contentHash, currentHash: current.contentHash }])
+      expect(JSON.stringify(feedback)).not.toContain('旧角色')
+      expect(feedback.instruction).toContain('按当前冻结输入重新生成完整工件')
+    } else {
+      expect(feedback.baselineArtifact.contentHash).toBe(cast.contentHash)
+      expect(feedback.changedBaselineInputs).toBeUndefined()
+    }
+  })
+
   it('同一专业 task 跨多 epoch 失败时，修复上下文与调度投影都保留最新直接因果失败', async () => {
     const f = await textAdventureQualityRecoveryFixture('same-task-cross-epoch-failure-cause')
     const taskKey = 'content.quest-script.supplemental'

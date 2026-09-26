@@ -1494,10 +1494,14 @@ async function applyCommand(input: {
       }
       const plan = parseProductProductionPlanV3(build.planJson)
       const task = plan.tasks.find(task => task.taskKey === contentRevision.artifactKey)
-      if (plan.productType !== 'text-adventure' || task?.skillId !== (contentRevision.artifactKey === 'content.story-bible' ? 'text-adventure.story-bible.v1' : 'text-adventure.cast-bible.v1')
+      if (plan.productType !== 'text-adventure' || task?.skillId !== ({
+        'content.story-bible': 'text-adventure.story-bible.v1',
+        'content.cast-bible': 'text-adventure.cast-bible.v1',
+        'content.adventure-architecture': 'text-adventure.production-architecture.v1',
+      }[contentRevision.artifactKey])
         || task.executionMode !== 'model' || task.failurePolicy !== 'pause'
         || task.outputArtifactKeys.length !== 1 || task.outputArtifactKeys[0] !== contentRevision.artifactKey) {
-        reject('invalid-state-transition', '内容修订未命中登记的故事或角色圣经岗位')
+        reject('invalid-state-transition', '内容修订未命中登记的故事、角色或空间架构岗位')
       }
       const baseline = (await db.productBuildArtifacts.where('buildId').equals(build.id!).toArray())
         .filter(row => row.artifactKey === contentRevision.artifactKey && row.controlEpoch === plan.controlEpoch

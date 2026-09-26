@@ -4621,7 +4621,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     ])
   }, 30_000)
 
-  it.each(['content.story-bible', 'content.cast-bible'] as const)('%s 暂停后修订已验收内容：绑定命令与原稿，只使后代失效，作者正文零模型采纳', async (revisionKey) => {
+  it.each(['content.story-bible', 'content.cast-bible', 'content.adventure-architecture'] as const)('%s 暂停后修订已验收内容：绑定命令与原稿，只使后代失效，作者正文零模型采纳', async (revisionKey) => {
     const owned = await fixtureForProduct('text-adventure', { scale: 'short-arc', visualLevel: 'none', omitWorldArtifacts: true })
     const requirement = owned.brief.capabilityRequirements.find(item => item.mediaClass === 'text')!
     const bindingHash = 'a'.repeat(64)
@@ -4632,7 +4632,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     const runText: ProductionTextRunnerV1 = async request => {
       const key = Object.keys(outputs).find(key => request.system.includes(`任务=${key}。`))!
       calls.push(key)
-      if (key === (revisionKey === 'content.story-bible' ? 'content.cast-bible' : 'content.adventure-architecture') && pauseOnce) {
+      if (key === ({ 'content.story-bible': 'content.cast-bible', 'content.cast-bible': 'content.adventure-architecture', 'content.adventure-architecture': 'content.narrative-arc-scenes' }[revisionKey]) && pauseOnce) {
         pauseOnce = false
         expect((await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId,
           command: { type: 'pause', commandId: 'story-revision.pause',
@@ -4659,7 +4659,8 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     const failure = JSON.parse((await prepareLegacyPausedProductBuildV1(owned.scope, currentBuild)).failureJson)
     const edited = JSON.parse(baseline.payloadJson)
     if (revisionKey === 'content.story-bible') edited.emotionalPromise = '在保留真实代价的选择中学会共同承担。'
-    else edited.characters[1].voice = '用简短的句子回应，先询问来意再提出条件。'
+    else if (revisionKey === 'content.cast-bible') edited.characters[1].voice = '用简短的句子回应，先询问来意再提出条件。'
+    else edited.regions[0].description = '潮汐推动的岛群，居民以互助维持航路。'
     const revision = { artifactKey: revisionKey, expectedArtifactVersion: baseline.version,
       expectedArtifactHash: baseline.contentHash, note: '纠正故事的情绪承诺，不改变世界事实',
       authorDraftJson: JSON.stringify(edited) }
@@ -4711,7 +4712,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     expect(events.some(event => event.type === 'model.requested')).toBe(false)
   }, 60_000)
 
-  it.each(['content.story-bible', 'content.cast-bible', 'content.product-module', 'content.adventure-side-quests', 'content.adventure-ambient-events'])('%s 作者修订走相同校验和持久回执，不伪造模型调用，并拒绝错任务或无效内容', async (repairTaskKey) => {
+  it.each(['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.product-module', 'content.adventure-side-quests', 'content.adventure-ambient-events'])('%s 作者修订走相同校验和持久回执，不伪造模型调用，并拒绝错任务或无效内容', async (repairTaskKey) => {
     const owned = await fixtureForProduct('text-adventure', {
       scale: 'short-arc', visualLevel: 'none', omitWorldArtifacts: true,
     })

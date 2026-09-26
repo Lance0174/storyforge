@@ -256,7 +256,7 @@ describe('PRODUCT-PROD-1E · recovery policy UI', () => {
 
   afterAll(() => db.close())
 
-  it('暂停中的圣经编辑载入准确原稿，修改理由必填且提交绑定原hash', async () => {
+  it.each([['content.story-bible', '载入故事圣经'], ['content.adventure-architecture', '载入地点架构']])('暂停中的 %s 编辑载入准确原稿，修改理由必填且提交绑定原hash', async (artifactKey, loadLabel) => {
     const f = await seedTextAdventureMediaRevisionWorkbenchV1('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X8WgWQAAAABJRU5ErkJggg==')
     const build = (await db.productBuilds.get(f.parentBuildId))!
     await db.productBuilds.update(f.parentBuildId, {
@@ -265,12 +265,12 @@ describe('PRODUCT-PROD-1E · recovery policy UI', () => {
     })
     await db.productProductions.update(f.productionId, { status: 'paused', controlEpoch: build.controlEpoch + 1 })
     const baseline = (await db.productBuildArtifacts.where('buildId').equals(f.parentBuildId).toArray())
-      .filter(row => row.artifactKey === 'content.story-bible').sort((a, b) => b.version - a.version)[0]!
+      .filter(row => row.artifactKey === artifactKey).sort((a, b) => b.version - a.version)[0]!
     await act(async () => root.render(createElement(ProductProductionStudio, {
       scope: f.scope, initialProduct: 'text-adventure', allowedProducts: ['text-adventure'], initialProductionId: f.productionId,
     })))
-    await waitFor(() => expect(button(host, '载入故事圣经').disabled).toBe(false))
-    await act(async () => button(host, '载入故事圣经').click())
+    await waitFor(() => expect(button(host, loadLabel).disabled).toBe(false))
+    await act(async () => button(host, loadLabel).click())
     expect(JSON.parse(textarea(host, '修订后的完整内容 JSON')!.value)).toEqual(JSON.parse(baseline.payloadJson))
     expect(button(host, '保存内容修订并继续').disabled).toBe(true)
     await setTextareaValue(textarea(host, '内容修订说明')!, '纠正两次历史事件混淆')
@@ -279,7 +279,7 @@ describe('PRODUCT-PROD-1E · recovery policy UI', () => {
     await waitFor(() => expect(serviceMocks.setPaused).toHaveBeenCalledTimes(1))
     expect((serviceMocks.setPaused.mock.calls[0] as unknown[] | undefined)?.[0]).toMatchObject({
       scope: f.scope, contentRevision: {
-        artifactKey: 'content.story-bible', expectedArtifactVersion: baseline.version, expectedArtifactHash: baseline.contentHash,
+        artifactKey, expectedArtifactVersion: baseline.version, expectedArtifactHash: baseline.contentHash,
         note: '纠正两次历史事件混淆', authorDraftJson: '{"revised":"明确区分两次事件"}',
       },
     })
