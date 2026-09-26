@@ -493,6 +493,7 @@ function sanitizePlan(
   const tasks: MasterAgentTask[] = []
   const ids = new Set<string>()
   const explicitlyRequested = classifyRequestedDomainIdsV1(request)
+  let removedUnrequestedTask = false
   for (const item of rawTasks.slice(0, 5)) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) continue
     const source = item as Record<string, unknown>
@@ -500,7 +501,10 @@ function sanitizePlan(
     const agentId = source.agentId as DomainAgentId
     // 模型不得把描述中出现的设定元素误当成新增数据授权。只要用户文本明确命中了至少一个
     // 已闭环领域，就只能调度这些领域；例如“用浮空城和守灯人规划卷纲”只能写大纲。
-    if (explicitlyRequested.size > 0 && !explicitlyRequested.has(agentId)) continue
+    if (explicitlyRequested.size > 0 && !explicitlyRequested.has(agentId)) {
+      removedUnrequestedTask = true
+      continue
+    }
     const id = typeof source.id === 'string' && source.id.trim()
       ? source.id.trim().slice(0, 80)
       : `task-${tasks.length + 1}`
@@ -568,6 +572,8 @@ function sanitizePlan(
   return {
     summary: stagedProse
       ? '先生成并确认章节大纲；确认进入正式数据后，再继续生成正文。'
+      : removedUnrequestedTask
+      ? '已按你的要求只保留本轮明确要做的任务，请确认下方计划。'
       : typeof raw.summary === 'string' && raw.summary.trim()
       ? raw.summary.trim().slice(0, 500)
       : '主 Agent 已拆分本轮创作任务。',

@@ -41,6 +41,38 @@ async function storedCounts(page: Page) {
   })
 }
 
+test('existing world context does not add a world task or misleading plan summary to character work', async ({ page }) => {
+  await setup(page, '角色引用世界隔离验收')
+  let calls = 0
+  await page.route(endpoint, async route => {
+    calls++
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({
+        summary: '先补世界设定，再设计主角。',
+        tasks: [
+          { id: 'world', agentId: 'world-origin', instruction: '补全世界设定', dependsOn: [] },
+          { id: 'character', agentId: 'character', instruction: '设计一位主角', dependsOn: ['world'] },
+        ],
+      }) } }],
+      usage: { prompt_tokens: 100, completion_tokens: 100, total_tokens: 200 },
+    }) })
+  })
+  await agent(page)
+  const request = '基于已有世界设定设计一位主角'
+  await page.getByRole('textbox', { name: '告诉主 Agent 你的目标' }).fill(request)
+  await page.getByRole('button', { name: '讨论与规划', exact: true }).click()
+  const plan = page.getByRole('region', { name: '待确认创作计划' })
+  await expect(plan.getByRole('listitem')).toHaveText([request])
+  await expect(page.getByText('先补世界设定，再设计主角。', { exact: true })).toHaveCount(0)
+  await page.reload()
+  await expect(plan.getByRole('listitem')).toHaveText([request])
+  expect(calls).toBe(1)
+  expect(await page.evaluate(async () => {
+    const { db } = await (new Function('return import("/storyforge/src/lib/db/schema.ts")'))()
+    return { worlds: await db.worldviews.count(), characters: await db.characters.count() }
+  })).toEqual({ worlds: 0, characters: 0 })
+})
+
 for (const viewport of [
   { width: 1366, height: 768 },
   { width: 390, height: 844 },

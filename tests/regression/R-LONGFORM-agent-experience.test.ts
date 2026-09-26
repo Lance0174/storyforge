@@ -140,6 +140,25 @@ describe('R-LONGFORM · 作者自由选写和目标保护', () => {
     expect(selectAgentSkillIdV1('prose', '不要续写，生成第一章正文')).toBe('prose.generate')
   })
 
+  it('角色引用现有世界不会保留模型擅加的世界任务、依赖或计划说明', async () => {
+    const { project, scope } = await fixture()
+    const plan = await createMasterAgentPlan({
+      projectId: project.id!, scope, worldGroupId: null, planningOnly: true,
+      request: '基于已有世界设定设计一位主角',
+    }, { complete: async () => JSON.stringify({
+      summary: '先补世界设定，再设计主角。',
+      tasks: [
+        { id: 'world', agentId: 'world-origin', instruction: '补全世界设定', dependsOn: [] },
+        { id: 'character', agentId: 'character', instruction: '设计一位主角', dependsOn: ['world'] },
+      ],
+    }) })
+    expect(plan.tasks.map(task => task.agentId)).toEqual(['character'])
+    expect(plan.tasks[0].dependsOn).toEqual([])
+    expect(plan.summary).not.toContain('先补世界')
+    expect(await db.worldviews.count()).toBe(0)
+    expect(await db.characters.count()).toBe(0)
+  })
+
   it('世界、故事、角色、细纲全部留白也能跳写第二章；正式数据保持不变', async () => {
     const { project, scope, secondId } = await fixture()
     const prepared = await prepareProseCopilot({

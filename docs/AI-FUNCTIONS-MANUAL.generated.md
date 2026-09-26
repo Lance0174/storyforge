@@ -358,8 +358,8 @@ AI 输出经 `adopt({ target, data })` 写回,只有这里登记的字段可写(
 
 | category | 触发文件 |
 |---|---|
-| `agent.orchestrator` | `src/lib/agent/orchestrator.ts:802` |
-| `agent.orchestrator.replan` | `src/lib/agent/orchestrator.ts:906` |
+| `agent.orchestrator` | `src/lib/agent/orchestrator.ts:808` |
+| `agent.orchestrator.replan` | `src/lib/agent/orchestrator.ts:912` |
 | `agent.readonly` | `src/lib/agent/client-adapter.ts:118` |
 | `authoring.ttrpg-campaign` | `src/lib/ttrpg/campaign-proposal-harness.ts:429` |
 | `canon.setting.extract` | `src/lib/agent/run/constitution-extraction-durable.ts:508` |
@@ -499,4 +499,4 @@ AI 输出经 `adopt({ target, data })` 写回,只有这里登记的字段可写(
 
 ---
 
-生成时间基准:commit `461f24c1`
+生成时间基准:commit `f4cde491`
