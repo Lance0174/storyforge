@@ -1053,6 +1053,43 @@ describe('PRODUCTPROD-1B · user command control plane', () => {
     })).toBe(true)
   })
 
+  it('仅允许实测旧正文输入容量不足升级，拒绝伪造容量、无溢出及现行容量仍不足', async () => {
+    const f = await fixture('text-adventure', 'key-scenes')
+    const briefHash = await hashProductProductionValueV2(f.brief)
+    const plan = await createProductProductionPlanV3({ buildNumber: 1, briefHash, brief: f.brief })
+    const scene = plan.tasks.find(task => task.kind === 'text-adventure-scene-script-part')!
+    expect(scene.budgetReservation.inputTokens).toBe(31_680)
+    const legacyPlan = {
+      ...plan,
+      tasks: plan.tasks.map(task => task.taskKey === scene.taskKey ? {
+        ...task, budgetReservation: { ...task.budgetReservation, inputTokens: 23_760 },
+      } : task),
+    }
+    const failure = (required: number, budget = 23_760, taskKey = scene.taskKey) => (
+      canonicalProductProductionJsonV2({
+        taskKey, code: 'task-context-budget-exceeded', attempt: 2,
+        detail: '[product-production-context] 制作合同或依赖产物未完整进入任务预算'
+          + `（required=${required}, budget=${budget}, sources=unknown）；未调用模型，请缩小制作范围。`,
+      })
+    )
+    const candidate = {
+      status: 'recovery-required' as const, releasedProductReleaseId: null,
+      planJson: canonicalProductProductionJsonV2(legacyPlan), failureJson: failure(25_615),
+    }
+    expect(canUpgradeTextAdventureExecutionPlanV1(candidate)).toBe(true)
+    for (const failureJson of [
+      failure(23_760), failure(31_681), failure(25_615, 20_000),
+      failure(25_615, 23_760, 'content.dialogue-pass.act-1'),
+    ]) expect(canUpgradeTextAdventureExecutionPlanV1({ ...candidate, failureJson })).toBe(false)
+    expect(canUpgradeTextAdventureExecutionPlanV1({
+      ...candidate, planJson: canonicalProductProductionJsonV2(plan),
+      failureJson: failure(32_000, 31_680),
+    })).toBe(false)
+    expect(canUpgradeTextAdventureExecutionPlanV1({
+      ...candidate, releasedProductReleaseId: 91,
+    })).toBe(false)
+  })
+
   it('仅把缺少真实图片输入预检的旧锚点 Plan 识别为可升级，现行或伪造失败不得误放行', async () => {
     const f = await fixture('text-adventure', 'key-scenes')
     const briefHash = await hashProductProductionValueV2(f.brief)

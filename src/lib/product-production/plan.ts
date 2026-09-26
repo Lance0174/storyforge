@@ -23,6 +23,7 @@ const FAILURE_POLICIES = ['fail-build', 'pause', 'fallback', 'skip-optional'] as
 // One image per Run keeps retries, receipts, budgets and repair lineage
 // truthful instead of treating provider batch cardinality as a prompt concern.
 export const TEXT_ADVENTURE_VISUAL_REVIEW_BATCH_SIZE_V1 = 1
+export const TEXT_ADVENTURE_SCENE_SCRIPT_INPUT_CEILING_V1 = 31_680
 
 export type TextAdventureQualityReviewTaskKeyV1 =
   `content.adventure-quality-review.${TextAdventureQualityReviewScopeV1}`
@@ -608,19 +609,16 @@ export async function createProductProductionPlanV3(input: {
     // fixture produces a 57,774-token exact packet; reserve 63,360 tokens at
     // the reviewed 528k baseline instead of truncating story-to-image evidence.
     'media.requirements': 0.12,
-    // Scene repair must carry the complete previously accepted prose bundle,
-    // not a lossy summary. A live baseline-preserving repair consumed 19,369
-    // input tokens after packet, repair evidence, full baseline, system schema
-    // and provider framing were accounted together. Reserve 23,760 in the
-    // reviewed 528k task baseline (22.7% measured headroom) for both initial
-    // and repair attempts; the append-only Build ledger remains the aggregate
-    // authority and charges actual usage only.
-    'content.scene-script.act-1.part-1': 0.045,
-    'content.scene-script.act-1.part-2': 0.045,
-    'content.scene-script.act-2.part-1': 0.045,
-    'content.scene-script.act-2.part-2': 0.045,
-    'content.scene-script.act-3.part-1': 0.045,
-    'content.scene-script.act-3.part-2': 0.045,
+    // Scene repair preserves the complete previous prose. A live v7 repair
+    // required 25,615 tokens before dispatch, exceeding the old 23,760 limit.
+    // Reserve 31,680 at the 528k baseline, keeping room for provider framing
+    // without trimming accepted prose or changing the aggregate Build limit.
+    'content.scene-script.act-1.part-1': TEXT_ADVENTURE_SCENE_SCRIPT_INPUT_CEILING_V1 / 528_000,
+    'content.scene-script.act-1.part-2': TEXT_ADVENTURE_SCENE_SCRIPT_INPUT_CEILING_V1 / 528_000,
+    'content.scene-script.act-2.part-1': TEXT_ADVENTURE_SCENE_SCRIPT_INPUT_CEILING_V1 / 528_000,
+    'content.scene-script.act-2.part-2': TEXT_ADVENTURE_SCENE_SCRIPT_INPUT_CEILING_V1 / 528_000,
+    'content.scene-script.act-3.part-1': TEXT_ADVENTURE_SCENE_SCRIPT_INPUT_CEILING_V1 / 528_000,
+    'content.scene-script.act-3.part-2': TEXT_ADVENTURE_SCENE_SCRIPT_INPUT_CEILING_V1 / 528_000,
     // A complete 60-minute third act produced a 17,425-token registered
     // Dialogue Editor packet before the system/schema/provider framing was
     // added. Keep the whole act together for character voice and knowledge

@@ -32,6 +32,7 @@ import {
   createProductProductionPlanV3,
   parseProductProductionPlanV3,
   textAdventureProductionBudgetFloorV1,
+  TEXT_ADVENTURE_SCENE_SCRIPT_INPUT_CEILING_V1,
 } from './plan'
 import { readMediaBlobObjectData } from './media-blob-store'
 import { parseTextAdventureQualityReviewArtifactV1 } from '../adventure/production-artifacts'
@@ -474,6 +475,21 @@ export function canUpgradeTextAdventureExecutionPlanV1(
           && registeredLimit === 16_500
           && measuredTokens > registeredLimit
       })()
+    const sceneRepairInputCapacityDrift = failure.code === 'task-context-budget-exceeded'
+      && task.kind === 'text-adventure-scene-script-part'
+      && typeof failure.detail === 'string'
+      && (() => {
+        const measured = /制作合同或依赖产物未完整进入任务预算（required=([0-9]+), budget=([0-9]+), sources=/
+          .exec(failure.detail)
+        if (!measured) return false
+        const required = Number(measured[1])
+        const reserved = Number(measured[2])
+        return Number.isSafeInteger(required)
+          && reserved === task.budgetReservation.inputTokens
+          && reserved < TEXT_ADVENTURE_SCENE_SCRIPT_INPUT_CEILING_V1
+          && required > reserved
+          && required <= TEXT_ADVENTURE_SCENE_SCRIPT_INPUT_CEILING_V1
+      })()
     const legacyMultiImageReview = task.kind === 'text-adventure-visual-quality-review-batch'
       && task.inputArtifactKeys.filter(key => /^media\.visual\.\d{3}$/.test(key)).length > 1
     const missingVisionPreflight = failure.taskKey === 'media.anchor-author-gate'
@@ -488,6 +504,7 @@ export function canUpgradeTextAdventureExecutionPlanV1(
     ))
     return measuredReservationDrift || measuredTimeoutDrift || qualityReferenceContractDrift
       || dialogueProjectionCapacityDrift
+      || sceneRepairInputCapacityDrift
       || legacyMultiImageReview
       || missingVisionPreflight
       || missingEndingRoutePlan

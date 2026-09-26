@@ -167,7 +167,7 @@ describe('R-TEXTADV2-production · 文字冒险正式生产契约与工作台', 
     expect(taskByKey.get('content.dialogue-pass.act-1')?.budgetReservation.inputTokens)
       .toBe(Math.floor(528_000 * 0.05))
     expect(taskByKey.get('content.scene-script.act-1.part-1')?.budgetReservation.inputTokens)
-      .toBe(Math.floor(528_000 * 0.045))
+      .toBe(31_680)
     expect(taskByKey.get('content.scene-script.act-1.part-1')?.budgetReservation.outputTokens)
       .toBe(32_000)
     TEXT_ADVENTURE_QUALITY_REVIEW_SCOPES_V1.forEach(scope => {
