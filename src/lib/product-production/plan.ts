@@ -24,6 +24,7 @@ const FAILURE_POLICIES = ['fail-build', 'pause', 'fallback', 'skip-optional'] as
 // truthful instead of treating provider batch cardinality as a prompt concern.
 export const TEXT_ADVENTURE_VISUAL_REVIEW_BATCH_SIZE_V1 = 1
 export const TEXT_ADVENTURE_SCENE_SCRIPT_INPUT_CEILING_V1 = 31_680
+export const TEXT_ADVENTURE_MAIN_QUEST_INPUT_CEILING_V1 = 42_240
 
 export type TextAdventureQualityReviewTaskKeyV1 =
   `content.adventure-quality-review.${TextAdventureQualityReviewScopeV1}`
@@ -604,6 +605,10 @@ export async function createProductProductionPlanV3(input: {
   // ceiling while retaining aggregate input headroom for retries. The
   // append-only Build ledger below the Plan remains the hard authority.
   const textAdventureInputWeights: Record<string, number> = {
+    // Live flagship planning needs 26,921 tokens of exact Brief/artifacts
+    // plus 5,542 of frozen world context, before provider framing. Give the
+    // mainline its own ceiling instead of the generic 32k allocation.
+    'content.main-quest-plan': TEXT_ADVENTURE_MAIN_QUEST_INPUT_CEILING_V1 / 528_000,
     // Media direction reads the complete accepted narrative closure so every
     // illustration is traceable to a real scene beat. The 60-minute golden
     // fixture produces a 57,774-token exact packet; reserve 63,360 tokens at

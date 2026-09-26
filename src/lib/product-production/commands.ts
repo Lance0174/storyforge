@@ -33,6 +33,7 @@ import {
   parseProductProductionPlanV3,
   textAdventureProductionBudgetFloorV1,
   TEXT_ADVENTURE_SCENE_SCRIPT_INPUT_CEILING_V1,
+  TEXT_ADVENTURE_MAIN_QUEST_INPUT_CEILING_V1,
 } from './plan'
 import { readMediaBlobObjectData } from './media-blob-store'
 import { parseTextAdventureQualityReviewArtifactV1 } from '../adventure/production-artifacts'
@@ -490,6 +491,25 @@ export function canUpgradeTextAdventureExecutionPlanV1(
           && required > reserved
           && required <= TEXT_ADVENTURE_SCENE_SCRIPT_INPUT_CEILING_V1
       })()
+    const mainQuestInputCapacityDrift = failure.code === 'task-preflight-failed'
+      && task.taskKey === 'content.main-quest-plan'
+      && task.kind === 'text-adventure-main-quest-plan'
+      && task.budgetReservation.inputTokens < TEXT_ADVENTURE_MAIN_QUEST_INPUT_CEILING_V1
+      && typeof failure.detail === 'string'
+      && (() => {
+        const prefix = '[product-production-scheduler] Brief/Artifact 与冻结世界事实合并后超过任务输入预算'
+        // Older receipts did not include measured sizes; retain this exact
+        // failure only for the old mainline contract, never arbitrary errors.
+        if (failure.detail === prefix) return true
+        const measured = /^（required=([0-9]+), budget=([0-9]+)）$/.exec(failure.detail.slice(prefix.length))
+        if (!failure.detail.startsWith(prefix) || !measured) return false
+        const required = Number(measured[1])
+        const reserved = Number(measured[2])
+        return Number.isSafeInteger(required)
+          && reserved === task.budgetReservation.inputTokens
+          && required > reserved
+          && required <= TEXT_ADVENTURE_MAIN_QUEST_INPUT_CEILING_V1
+      })()
     const legacyMultiImageReview = task.kind === 'text-adventure-visual-quality-review-batch'
       && task.inputArtifactKeys.filter(key => /^media\.visual\.\d{3}$/.test(key)).length > 1
     const missingVisionPreflight = failure.taskKey === 'media.anchor-author-gate'
@@ -505,6 +525,7 @@ export function canUpgradeTextAdventureExecutionPlanV1(
     return measuredReservationDrift || measuredTimeoutDrift || qualityReferenceContractDrift
       || dialogueProjectionCapacityDrift
       || sceneRepairInputCapacityDrift
+      || mainQuestInputCapacityDrift
       || legacyMultiImageReview
       || missingVisionPreflight
       || missingEndingRoutePlan

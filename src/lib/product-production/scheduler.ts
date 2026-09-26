@@ -4633,7 +4633,8 @@ async function runClaimedTaskCore(input: {
           inputBudget: totalInputBudget,
         })
         if (assembled.overBudgetAfterTrim) {
-          throw new Error('[product-production-scheduler] Brief/Artifact 与冻结世界事实合并后超过任务输入预算')
+          throw new Error('[product-production-scheduler] Brief/Artifact 与冻结世界事实合并后超过任务输入预算'
+            + `（required=${assembled.totalInputTokens}, budget=${totalInputBudget}）`)
         }
         const manifestV1 = await createContextManifestFromAssemblyV1({
           runId: snapshot.run.id, stepId: input.task.taskKey, attempt,

@@ -147,6 +147,7 @@ describe('R-TEXTADV2-production · 文字冒险正式生产契约与工作台', 
       .toBe(Math.floor(200_000 * 0.04))
     expect(taskByKey.get('content.main-quest-plan')?.budgetReservation.durationMs).toBe(420_000)
     expect(taskByKey.get('content.main-quest-plan')?.timeoutMs).toBe(420_000)
+    expect(taskByKey.get('content.main-quest-plan')?.budgetReservation.inputTokens).toBe(42_240)
     expect(taskByKey.get('content.quest-script.main.act-1.multi')?.budgetReservation.durationMs)
       .toBe(420_000)
     expect(taskByKey.get('content.quest-script.main.act-1.multi')?.timeoutMs).toBe(420_000)

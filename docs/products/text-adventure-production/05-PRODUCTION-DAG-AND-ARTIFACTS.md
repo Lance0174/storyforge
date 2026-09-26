@@ -72,6 +72,7 @@ WorldRelease + Confirmed Brief + Frozen SourcePlan
 
 ## 4. 预算与并发
 
+- 主线任务规划独立预留 42,240 输入 token（528k 基线）：实测完整 Brief/上游工件为 26,921，冻结世界上下文为 5,542，另保留请求封装余量。旧 32k 合同的合并输入失败可通过执行计划升级生成不可变子 Build，按 hash 携带已签收工件；不得原地改冻结计划或截断内容。
 - 总预算由 Brief 授权，再按故事规划、任务、正文、审校和媒资明确分配；正文任务按目标可见字量分配，不用一个超长主线调用吞掉全部预算。
 - `maxOutputTokens` 是 Skill 的可见生成上限，Plan reservation 是包含 Provider 隐藏推理的可计费用量上限，两者不得混为一谈。六个 Scene Writer Run 在 24k 可见上限外各预留有界 8k 推理余量；执行计划升级必须改变 task-local reservation，而不是只放大被固定 baseline 截住的 Brief 总预算。
 - 同一 Agent 的场景包可在不重叠的 subject lock 下并行；主线任务与系统完成前不得提前写场景。

@@ -1090,6 +1090,42 @@ describe('PRODUCTPROD-1B · user command control plane', () => {
     })).toBe(false)
   })
 
+  it('主线完整世界输入溢出仅升级旧容量，保留实测范围及发布边界', async () => {
+    const f = await fixture('text-adventure', 'key-scenes')
+    const briefHash = await hashProductProductionValueV2(f.brief)
+    const plan = await createProductProductionPlanV3({ buildNumber: 1, briefHash, brief: f.brief })
+    const mainline = plan.tasks.find(task => task.taskKey === 'content.main-quest-plan')!
+    expect(mainline.budgetReservation.inputTokens).toBe(42_240)
+    const legacyPlan = {
+      ...plan, tasks: plan.tasks.map(task => task.taskKey === mainline.taskKey ? {
+        ...task, budgetReservation: { ...task.budgetReservation, inputTokens: 32_000 },
+      } : task),
+    }
+    const prefix = '[product-production-scheduler] Brief/Artifact 与冻结世界事实合并后超过任务输入预算'
+    const failure = (detail = prefix, taskKey = mainline.taskKey) => canonicalProductProductionJsonV2({
+      taskKey, code: 'task-preflight-failed', attempt: 1, detail,
+    })
+    const candidate = {
+      status: 'recovery-required' as const, releasedProductReleaseId: null,
+      planJson: canonicalProductProductionJsonV2(legacyPlan), failureJson: failure(),
+    }
+    expect(canUpgradeTextAdventureExecutionPlanV1(candidate)).toBe(true)
+    expect(canUpgradeTextAdventureExecutionPlanV1({
+      ...candidate, failureJson: failure(`${prefix}（required=32077, budget=32000）`),
+    })).toBe(true)
+    for (const failureJson of [
+      failure(`${prefix}（required=32000, budget=32000）`),
+      failure(`${prefix}（required=42241, budget=32000）`),
+      failure(`${prefix}（required=32077, budget=31000）`),
+      failure(`${prefix}其他错误`), failure(prefix, 'content.cast-bible'), failure('其他错误'),
+    ]) expect(canUpgradeTextAdventureExecutionPlanV1({ ...candidate, failureJson })).toBe(false)
+    expect(canUpgradeTextAdventureExecutionPlanV1({
+      ...candidate, planJson: canonicalProductProductionJsonV2(plan),
+    })).toBe(false)
+    expect(canUpgradeTextAdventureExecutionPlanV1({ ...candidate, releasedProductReleaseId: 91 })).toBe(false)
+    expect(canUpgradeTextAdventureExecutionPlanV1({ ...candidate, status: 'building' })).toBe(false)
+  })
+
   it('仅把缺少真实图片输入预检的旧锚点 Plan 识别为可升级，现行或伪造失败不得误放行', async () => {
     const f = await fixture('text-adventure', 'key-scenes')
     const briefHash = await hashProductProductionValueV2(f.brief)
