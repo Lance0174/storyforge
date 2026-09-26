@@ -1901,7 +1901,7 @@ test('已有角色补全通过定向 Skill 恢复候选，确认后只写入所�
   await openSidebarLeaf(page, '角色设计', '角色生成')
   await page.getByPlaceholder('角色要求（可选）').fill('设计一名守灯钟匠')
   await page.getByRole('button', { name: 'AI 设计角色', exact: true }).click()
-  await expect(page.getByRole('textbox', { name: '角色候选内容' })).toContainText('模型守灯人')
+  await expect(page.getByRole('textbox', { name: '姓名 · 候选 1', exact: true })).toHaveValue('模型守灯人')
   await page.getByRole('button', { name: '采纳', exact: true }).click()
   await expect(page.getByText('角色生成 · 1', { exact: true })).toBeVisible()
 
