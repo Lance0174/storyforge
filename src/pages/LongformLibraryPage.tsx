@@ -7,7 +7,7 @@ import { liveQuery } from 'dexie'
 import { useNavigate, useSearchParams } from 'react-router'
 import { db } from '../lib/db/schema'
 import type { Project, Work } from '../lib/types'
-import { switchActiveWork } from '../lib/workspace/works'
+import { readWorkLibraryProjectionV1, switchActiveWork } from '../lib/workspace/works'
 import { deleteWork } from '../lib/workspace/lifecycle'
 import { requireBackupBefore } from '../lib/safety/require-backup-before'
 import { createWorkspace } from '../lib/workspace/create-workspace'
@@ -53,7 +53,7 @@ export default function LongformLibraryPage() {
       for (const project of projects) {
         if (project.workspacePurpose !== 'independent-work') continue
         const works = await db.works.where('projectId').equals(project.id!).toArray()
-        for (const work of works) if (effectiveWorkKind(work) === 'novel' && effectiveNovelProfile(work) === 'long') result.push({ project, work })
+        for (const work of works) if (effectiveWorkKind(work) === 'novel' && effectiveNovelProfile(work) === 'long') result.push({ project, work: await readWorkLibraryProjectionV1(work) })
       }
       return result.sort((a, b) => b.work.updatedAt - a.work.updatedAt)
     }).subscribe({ next: value => { setRows(value); setLoading(false) }, error: cause => { setError(String(cause)); setLoading(false) } })

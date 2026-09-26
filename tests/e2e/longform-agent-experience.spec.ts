@@ -187,6 +187,18 @@ test('sparse chapter can be written, discussed, restored, edited and adopted wit
   await page.getByRole('button', { name: '打开作品正文', exact: true }).click()
   await page.getByText('第1章', { exact: true }).first().click()
   await expect(page.locator('.tiptap-editor')).toContainText('作者修订：天刚破晓')
+  const expectedWords = await page.evaluate(async () => {
+    const {countWords} = await (new Function('return import("/storyforge/src/lib/utils/html.ts")'))()
+    return countWords(document.querySelector('.tiptap-editor')!.textContent!)
+  })
+  expect(expectedWords).toBeGreaterThan(0)
+  await page.getByRole('button', {name: '作品库', exact: true}).click()
+  const workCard = page.getByRole('article').filter({has: page.getByRole('heading', {name: '自由选写隔离验收', exact: true})})
+  await expect(workCard).toContainText(`${expectedWords} 字`)
+  await page.reload()
+  await expect(workCard).toContainText(`${expectedWords} 字`)
+  await page.getByRole('link', {name: '首页', exact: true}).click()
+  await expect(workCard).toContainText(`${expectedWords} 字`)
 })
 
 test('stopping a waiting planner restores input and does not resend or publish its late response', async ({
