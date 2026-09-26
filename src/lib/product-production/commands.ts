@@ -1486,6 +1486,30 @@ async function applyCommand(input: {
     if (build.status !== 'paused' || !build.resumeState) {
       reject('invalid-state-transition', 'Build 没有可恢复状态')
     }
+    const contentRevision = command.contentRevision
+    if (contentRevision) {
+      if (production.productType !== 'text-adventure' || build.resumeState !== 'building'
+        || build.releasedProductReleaseId != null) {
+        reject('invalid-state-transition', '内容修订只允许尚在构建的未发布文字冒险暂停态')
+      }
+      const plan = parseProductProductionPlanV3(build.planJson)
+      const task = plan.tasks.find(task => task.taskKey === contentRevision.artifactKey)
+      if (plan.productType !== 'text-adventure' || task?.skillId !== (contentRevision.artifactKey === 'content.story-bible' ? 'text-adventure.story-bible.v1' : 'text-adventure.cast-bible.v1')
+        || task.executionMode !== 'model' || task.failurePolicy !== 'pause'
+        || task.outputArtifactKeys.length !== 1 || task.outputArtifactKeys[0] !== contentRevision.artifactKey) {
+        reject('invalid-state-transition', '内容修订未命中登记的故事或角色圣经岗位')
+      }
+      const baseline = (await db.productBuildArtifacts.where('buildId').equals(build.id!).toArray())
+        .filter(row => row.artifactKey === contentRevision.artifactKey && row.controlEpoch === plan.controlEpoch
+          && (row.status === 'accepted' || row.status === 'carried-forward'))
+        .sort((a, b) => b.version - a.version)[0]
+      if (!baseline || baseline.projectId !== scope.projectId || baseline.worldId !== scope.worldId
+        || baseline.workId !== scope.workId || baseline.version !== contentRevision.expectedArtifactVersion
+        || baseline.contentHash !== contentRevision.expectedArtifactHash || !baseline.producerReceiptHash
+        || !/^[a-f0-9]{64}$/.test(baseline.producerReceiptHash)) {
+        reject('source-stale', '内容原稿已变化或缺少已验收证据，请重新读取')
+      }
+    }
     let budgetLedgerJson = build.budgetLedgerJson
     let pausedReservationAccountings: PausedReservationAccountingV1[] = []
     let failure: Record<string, unknown>
@@ -1610,7 +1634,18 @@ async function applyCommand(input: {
       controlEpoch,
       stateRevision: build.stateRevision + 1,
       budgetLedgerJson,
-      failureJson: pausedReservationAccountings.length ? safeJson({
+      failureJson: contentRevision ? safeJson({
+        code: 'author-revised-content', commandId: command.commandId, revisionCommand: command,
+        blockerKey: contentRevision.artifactKey,
+        revisionSource: {
+          artifactKey: contentRevision.artifactKey,
+          version: contentRevision.expectedArtifactVersion,
+          contentHash: contentRevision.expectedArtifactHash,
+        },
+        resolution: { action: 'author-edit', note: contentRevision.note, authorDraftJson: contentRevision.authorDraftJson },
+        resumedFromControlEpoch: build.controlEpoch,
+        pauseReceipt: pausedFailure, pausedReservationAccountings, resolvedAt: now,
+      }) : pausedReservationAccountings.length ? safeJson({
         code: 'user-pause-resolved',
         previousFailureCode: 'pause-provider-result-unknown',
         resumedFromControlEpoch: build.controlEpoch,
@@ -1638,6 +1673,7 @@ async function applyCommand(input: {
       controlEpoch,
       restored,
       pausedReservationAccountings,
+      ...(contentRevision ? { revisionAuthorization: command } : {}),
     } }
   }
 

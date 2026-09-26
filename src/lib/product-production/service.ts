@@ -1261,9 +1261,11 @@ export async function setProductProductionPausedV1(input: {
   production: ProductProductionRecordV1
   build?: ProductBuildRecordV1 | null
   pausedReservationDisposition?: 'confirmed-not-charged' | 'charge-reservation-upper-bound'
+  contentRevision?: import('../types').TextAdventureContentRevisionV1
 }): Promise<'paused' | 'resumed'> {
   if (input.build) input = { ...input, build: await prepareLegacyPausedProductBuildV1(input.scope, input.build) }
   const paused = input.production.status === 'paused'
+  if (input.contentRevision && !paused) throw new Error('[product-production-service] 请先暂停制作再修订内容')
   let pausedReservationDispositions: Extract<
     import('../types').ProductProductionCommandV1,
     { type: 'resume' }
@@ -1358,6 +1360,7 @@ export async function setProductProductionPausedV1(input: {
           commandId: commandId('resume'),
           expectedStateRevision: input.production.stateRevision,
           ...(pausedReservationDispositions ? { pausedReservationDispositions } : {}),
+          ...(input.contentRevision ? { contentRevision: input.contentRevision } : {}),
         }
       : {
           type: 'pause', commandId: commandId('pause'), expectedStateRevision: input.production.stateRevision,

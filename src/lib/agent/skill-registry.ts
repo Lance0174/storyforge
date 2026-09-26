@@ -4562,7 +4562,7 @@ export const AGENT_SKILLS = [
     maxOutputTokens: 14_000,
     writeTargets: [{ table: 'productBuildArtifacts', fields: ['payloadJson'], adoptionExtension: 'product-production-artifacts' }],
     lastVerifiedAt: '2026-09-27',
-    regressionTests: ['R-TEXTADV-source-depth', 'R-TEXTADV3-agent-team', 'R-TEXTADV3-production-artifacts'],
+    regressionTests: ['R-PRODUCTPROD1F-production-executor', 'R-TEXTADV-source-depth', 'R-TEXTADV3-agent-team', 'R-TEXTADV3-production-artifacts'],
   },
   {
     version: 1,
@@ -4629,7 +4629,7 @@ export const AGENT_SKILLS = [
     maxOutputTokens: 16_000,
     writeTargets: [{ table: 'productBuildArtifacts', fields: ['payloadJson'], adoptionExtension: 'product-production-artifacts' }],
     lastVerifiedAt: '2026-09-27',
-    regressionTests: ['R-TEXTADV-source-depth', 'R-TEXTADV3-agent-team'],
+    regressionTests: ['R-PRODUCTPROD1F-production-executor', 'R-TEXTADV-source-depth', 'R-TEXTADV3-agent-team'],
   },
   {
     version: 1,

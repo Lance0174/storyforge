@@ -70,7 +70,7 @@ import {
   parseProductProductionSourcePlanV1,
 } from './source-contracts'
 import { assertFormalProductProductionStartV1 } from '../product/source-contracts'
-import { preserveProductProductionContextV1, ProductProductionContextBudgetErrorV1 } from './context'
+import { preserveProductProductionContextV1, ProductProductionContextBudgetErrorV1, validateProductProductionRecoveryDirectiveV1 } from './context'
 import { recordAgentRunArtifactV1 } from '../memory/artifact-store'
 import { assertExactRunArtifactBodySafeV1 } from '../memory/evidence-policy'
 import {
@@ -2345,7 +2345,7 @@ async function ensurePlan(input: {
     const pauseResumeRecovery = (() => {
       const failure = parsedObject(state.build.failureJson)
       return failure.code === 'user-paused' || failure.code === 'user-resumed'
-        || failure.code === 'user-pause-resolved'
+        || failure.code === 'user-pause-resolved' || failure.code === 'author-revised-content'
     })()
     const invalidatedTaskKeys = parentQualityRollback != null || reviewRollbackControlEpoch != null
       ? textAdventureQualityRollbackInvalidatedTaskKeysV1(plan)
@@ -2463,7 +2463,7 @@ function authorResolutionEvidence(
     || typeof row.resolvedAt !== 'number' || !Number.isFinite(row.resolvedAt)) return null
   const candidate = resolution as Record<string, unknown>
   const actions: ProductProductionBlockerResolutionV1['action'][] = [
-    'retry', 'fallback', 'waive-soft-gate', 'change-capability',
+    'retry', 'author-edit', 'fallback', 'waive-soft-gate', 'change-capability',
     'accept-product-private-expansion', 'confirm-character-anchors', 'cancel',
   ]
   if (typeof candidate.action !== 'string'
@@ -3388,6 +3388,11 @@ export async function recoveryInvalidatedTaskKeys(input: {
   const recoveryResolution = recovery.resolution && typeof recovery.resolution === 'object'
     && !Array.isArray(recovery.resolution)
     ? recovery.resolution as Record<string, unknown> : null
+  if (recovery.code === 'author-revised-content' && typeof recovery.blockerKey === 'string'
+    && ['content.story-bible', 'content.cast-bible'].includes(recovery.blockerKey)
+    && recoveryResolution?.action === 'author-edit') {
+    return expandProductProductionInvalidatedTaskClosureV1(input.plan, [recovery.blockerKey])
+  }
   const previousFailure = recovery.previousFailure && typeof recovery.previousFailure === 'object'
     && !Array.isArray(recovery.previousFailure)
     ? recovery.previousFailure as Record<string, unknown> : null
@@ -4695,6 +4700,12 @@ async function runClaimedTaskCore(input: {
     tokens: attemptBudgetReservation.inputTokens + attemptBudgetReservation.outputTokens,
   })
   const repair = JSON.parse(input.build.failureJson)
+  if (repair.code === 'author-revised-content' && repair.blockerKey === input.task.taskKey) {
+    await validateProductProductionRecoveryDirectiveV1({
+      scope: input.scope, productProductionId: input.productionId, productBuildId: input.build.id,
+      productProductionTaskKey: input.task.taskKey, expectedState: 'resolved',
+    })
+  }
   const authorDraftJson = repair.blockerKey === input.task.taskKey && repair.resolution?.action === 'author-edit'
     ? repair.resolution.authorDraftJson as string : undefined
   if (authorDraftJson || authorizedDirectResult) {

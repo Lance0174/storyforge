@@ -704,6 +704,15 @@ export interface ProductProductionBlockerResolutionV1 {
   };
 }
 
+/** Explicit replacement bound to one accepted story or cast artifact. */
+export interface TextAdventureContentRevisionV1 {
+  artifactKey: 'content.story-bible' | 'content.cast-bible';
+  expectedArtifactVersion: number;
+  expectedArtifactHash: string;
+  note: string;
+  authorDraftJson: string;
+}
+
 /**
  * Author accounting decision for one exact provider reservation that was still
  * in flight when a Production was paused. Every identity field is required so
@@ -836,6 +845,7 @@ export type ProductProductionCommandV1 =
       expectedStateRevision: number;
       /** Required only when pause froze one or more in-flight provider reservations. */
       pausedReservationDispositions?: ProductProductionPausedReservationDispositionV1[];
+      contentRevision?: TextAdventureContentRevisionV1;
     }
   | {
       type: "stop";

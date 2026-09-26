@@ -629,11 +629,28 @@ export function parseProductProductionCommandV1(value: unknown): ProductProducti
   }
   if (type === 'pause') return { type, commandId: commandHeader(row, type, ['expectedStateRevision', 'reason']), expectedStateRevision: expectedRevision(row.expectedStateRevision), reason: text(row.reason, 'reason', 4000) }
   if (type === 'resume') {
+    const hasContentRevision = Object.prototype.hasOwnProperty.call(row, 'contentRevision')
     const hasPausedReservations = Object.prototype.hasOwnProperty.call(row, 'pausedReservationDispositions')
     const commandId = commandHeader(row, type, [
       'expectedStateRevision',
       ...(hasPausedReservations ? ['pausedReservationDispositions'] : []),
+      ...(hasContentRevision ? ['contentRevision'] : []),
     ])
+    const contentRevision = hasContentRevision ? (() => {
+      const revision = record(row.contentRevision, 'resume.contentRevision')
+      exactKeys(revision, ['artifactKey', 'expectedArtifactVersion', 'expectedArtifactHash', 'note', 'authorDraftJson'], 'resume.contentRevision')
+      const expectedArtifactHash = text(revision.expectedArtifactHash, 'resume.contentRevision.expectedArtifactHash', 64)
+      if (!/^[a-f0-9]{64}$/.test(expectedArtifactHash)) fail('resume.contentRevision.expectedArtifactHash 无效')
+      const authorDraftJson = text(revision.authorDraftJson, 'resume.contentRevision.authorDraftJson', 120_000)
+      try { record(JSON.parse(authorDraftJson), 'resume.contentRevision.authorDraftJson') } catch { fail('resume.contentRevision.authorDraftJson 必须是 JSON 对象') }
+      return {
+        artifactKey: enumValue(revision.artifactKey, ['content.story-bible', 'content.cast-bible'], 'resume.contentRevision.artifactKey'),
+        expectedArtifactVersion: positiveId(revision.expectedArtifactVersion, 'resume.contentRevision.expectedArtifactVersion'),
+        expectedArtifactHash,
+        note: text(revision.note, 'resume.contentRevision.note', 2000),
+        authorDraftJson,
+      }
+    })() : undefined
     const pausedReservationDispositions = hasPausedReservations
       ? (() => {
           if (!Array.isArray(row.pausedReservationDispositions)
@@ -673,6 +690,7 @@ export function parseProductProductionCommandV1(value: unknown): ProductProducti
       commandId,
       expectedStateRevision: expectedRevision(row.expectedStateRevision),
       ...(pausedReservationDispositions ? { pausedReservationDispositions } : {}),
+      ...(contentRevision ? { contentRevision } : {}),
     }
   }
   if (type === 'stop') return { type, commandId: commandHeader(row, type, ['expectedStateRevision', 'retention']), expectedStateRevision: expectedRevision(row.expectedStateRevision), retention: enumValue(row.retention, ['keep-build', 'discard-unreleased'], 'retention') }

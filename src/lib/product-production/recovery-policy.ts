@@ -14,6 +14,8 @@ const GENERIC_AUTHOR_REPAIR_TASKS = new Map<string, string>([
 ])
 
 const TEXT_ADVENTURE_AUTHOR_REPAIR_TASKS = new Map<string, string>([
+  ['content.story-bible', 'text-adventure.story-bible.v1'],
+  ['content.cast-bible', 'text-adventure.cast-bible.v1'],
   ['content.design', 'text-adventure.creative-direction.v1'],
   ['content.product-module', 'text-adventure.production-systems.v1'],
   ['content.adventure-side-quests', 'text-adventure.production-side-quests.v1'],

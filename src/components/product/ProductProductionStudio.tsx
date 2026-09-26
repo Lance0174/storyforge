@@ -691,6 +691,7 @@ export default function ProductProductionStudio(props: {
   const [taskEvidence, setTaskEvidence] = useState<{ taskKey: string; text: string } | null>(null)
   const [repairNote, setRepairNote] = useState('')
   const [authorDraftJson, setAuthorDraftJson] = useState('')
+  const [contentRevision, setContentRevision] = useState<import('../../lib/types').TextAdventureContentRevisionV1 | null>(null)
   const [unknownResultDisposition, setUnknownResultDisposition] = useState<
     '' | 'confirmed-not-charged' | 'charge-reservation-upper-bound'
   >('')
@@ -698,6 +699,7 @@ export default function ProductProductionStudio(props: {
     setTaskEvidence(null)
     setRepairNote('')
     setAuthorDraftJson('')
+    setContentRevision(null)
     setUnknownResultDisposition('')
   }, [selectedProductionId, progress?.controlEpoch])
   const [performanceGate, setPerformanceGate] = useState<VerifiedProductBrowserPerformanceGateV1 | null>(null)
@@ -1232,6 +1234,19 @@ export default function ProductProductionStudio(props: {
       ? 'Build 已恢复；暂停时仍在途的请求已先按 Run、attempt 与 epoch 封账。'
       : 'Build 已暂停并递增 control epoch；如有仍在途的供应商请求，恢复前会要求明确结算。')
   }, details?.production.status === 'paused' ? '恢复制作' : '暂停制作')
+
+  const resumeWithContentRevision = () => run(async () => {
+    if (!details || !contentRevision) throw new Error('请先载入待修订的故事或角色圣经。')
+    await setProductProductionPausedV1({
+      scope: props.scope, production: details.production, build: details.build,
+      contentRevision,
+      ...(unknownResultDisposition ? { pausedReservationDisposition: unknownResultDisposition } : {}),
+    })
+    setContentRevision(null)
+    setUnknownResultDisposition('')
+    await refresh(details.production.id)
+    setMessage('内容修订已保存；原稿保留，新版本将通过原有校验后重新生成受影响内容。')
+  }, '保存内容修订并继续')
 
   const stop = () => run(async () => {
     if (!details) throw new Error('缺少 Production。')
@@ -2122,6 +2137,30 @@ export default function ProductProductionStudio(props: {
           </details>)}</div>
           <p className="mt-3 text-[10px] leading-5 text-text-muted">需要修改时，在下方“继续演化下一版”描述局部目标并只勾选受影响泳道；依赖 hash 未变化的工件会保留，旧 Build 与存档不会被覆盖。</p>
         </section>}
+        {details?.production.productType === 'text-adventure' && details.production.status === 'paused'
+          && details.build?.resumeState === 'building' && details.build.releasedProductReleaseId == null
+          && <section className="mt-5 rounded border border-border bg-bg-elevated p-5" data-testid="text-adventure-content-revision">
+            <h2 className="text-sm font-semibold">修订故事与角色圣经</h2>
+            <p className="mt-2 text-xs text-text-muted">保留原稿，只重新生成依赖本次修改的内容。新稿仍须通过原有规则校验。</p>
+            {!contentRevision && <div className="mt-3 flex gap-2">{(['content.story-bible', 'content.cast-bible'] as const).map(artifactKey =>
+              <button key={artifactKey} disabled={busy || productionRunning || !reviewArtifacts.some(row => row.artifactKey === artifactKey)}
+                onClick={() => {
+                  const original = reviewArtifacts.filter(row => row.artifactKey === artifactKey).sort((a, b) => b.version - a.version)[0]
+                  if (original) setContentRevision({ artifactKey, expectedArtifactVersion: original.version,
+                    expectedArtifactHash: original.contentHash, authorDraftJson: JSON.stringify(original.payload, null, 2), note: '' })
+                }} className="rounded border border-border px-3 py-2 text-xs disabled:opacity-40">{artifactKey === 'content.story-bible' ? '载入故事圣经' : '载入角色圣经'}</button>
+            )}</div>}
+            {contentRevision && <>
+              <label className="mt-3 grid gap-2 text-xs">修改说明<textarea aria-label="内容修订说明" value={contentRevision.note} maxLength={2000}
+                onChange={event => setContentRevision(current => current ? { ...current, note: event.target.value } : null)}
+                className="rounded border border-border bg-bg-base p-3" /></label>
+              <label className="mt-3 grid gap-2 text-xs">完整修订稿（JSON）<textarea aria-label="修订后的完整内容 JSON" value={contentRevision.authorDraftJson} maxLength={120000}
+                onChange={event => setContentRevision(current => current ? { ...current, authorDraftJson: event.target.value } : null)}
+                className="min-h-80 rounded border border-border bg-bg-base p-3 font-mono" /></label>
+              <button disabled={busy || productionRunning || !contentRevision.note.trim() || !contentRevision.authorDraftJson.trim()}
+                onClick={resumeWithContentRevision} className="mt-3 rounded bg-accent px-4 py-2 text-xs text-white disabled:opacity-40">保存内容修订并继续</button>
+            </>}
+          </section>}
         {details?.production.productType === 'text-adventure' && mediaAssets.length > 0 && <section className="mt-5 rounded border border-border bg-bg-elevated p-5" data-testid="text-adventure-media-authoring">
           <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-sm font-semibold">插图素材、独立质检与作者逐图验收</h2><p className="mt-1 max-w-3xl text-[10px] leading-5 text-text-muted">每次替换、锁定、解锁或单项重生成都会派生新 Build；旧 Preview、Release 与存档不会被覆盖。商业候选必须依次通过需求绑定审计、独立多模态 Visual QA 和作者逐图确认，任何一层都不能替代另一层。</p></div><span className="rounded bg-accent/10 px-2 py-1 text-[9px] text-accent">{mediaAssets.length} 张冻结图片</span></div>
           {commercialHumanVisualRequired && <div className="mt-4 grid gap-2 text-[10px] md:grid-cols-3" data-testid="text-adventure-visual-review-layers">

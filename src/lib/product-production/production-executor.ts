@@ -7763,7 +7763,12 @@ async function executeModelTask(input: ProductProductionTaskExecutionInputV1, op
   return {
     artifacts: [{
       artifactKey: input.task.outputArtifactKeys[0], kind, payload, quality,
-      rights: { origin: input.authorDraftJson ? 'author-revised-model-draft' : 'configured-text-model', containsThirdPartyMedia: false },
+      rights: {
+        origin: input.authorDraftJson ? 'author-revised-model-draft' : 'configured-text-model',
+        containsThirdPartyMedia: false,
+        ...(input.authorDraftJson && input.authorResolution
+          ? { authorRevisionCommandId: input.authorResolution.commandId } : {}),
+      },
     }],
     passedGateIds: [...input.task.acceptanceGateIds],
     usage: paidUsage,

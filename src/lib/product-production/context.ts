@@ -12,7 +12,8 @@ import {
 } from '../adventure/language-quality'
 import { TEXT_ADVENTURE_QUALITY_REVIEW_SCORE_KEYS_BY_SCOPE_V1 } from '../adventure/production-artifacts'
 import { textAdventureDecisionEchoPresentationV1 } from '../adventure/production-compiler'
-import { isSha256Hash } from './hash'
+import { isSha256Hash, canonicalProductProductionJsonV2, hashProductProductionValueV2 } from './hash'
+import { parseProductProductionCommandV1 } from './contracts'
 import { textAdventureQualityReviewScopeFromTaskKeyV1 } from './plan'
 import {
   textAdventureQualityArcRepairTaskKeysV1,
@@ -111,7 +112,7 @@ export async function validateProductProductionRecoveryDirectiveV1(input: {
   requestedAction?: ProductProductionRecoveryActionV1
   allowLegacyRetry?: boolean
 }): Promise<ValidatedProductProductionRecoveryDirectiveV1> {
-  const { scope, build } = await productionAndBuild({
+  const { scope, production, build } = await productionAndBuild({
     projectId: input.scope.projectId,
     scope: input.scope,
     productProductionId: input.productProductionId,
@@ -147,6 +148,38 @@ export async function validateProductProductionRecoveryDirectiveV1(input: {
     throw new ProductProductionRecoveryDirectiveErrorV1('[product-production-context] 已解决 blocker 缺少合法恢复动作')
   }
   const action = resolvedDirective ? resolvedAction : input.requestedAction ?? null
+  if (failureState.code === 'author-revised-content') {
+    const command = parseProductProductionCommandV1(failureState.revisionCommand)
+    if (production.productType !== 'text-adventure' || input.expectedState === 'blocked'
+      || action !== 'author-edit' || !['content.story-bible', 'content.cast-bible'].includes(input.productProductionTaskKey)
+      || command.type !== 'resume' || !command.contentRevision || command.contentRevision.artifactKey !== input.productProductionTaskKey
+      || command.commandId !== failureState.commandId) {
+      throw new ProductProductionRecoveryDirectiveErrorV1('[product-production-context] 内容修订缺少准确的恢复命令')
+    }
+    const receipt = await db.productProductionCommands.where('[productionId+commandId]')
+      .equals([production.id!, command.commandId]).first()
+    const result = receipt ? JSON.parse(receipt.resultJson) : null
+    const revision = command.contentRevision
+    const expectedResolution = { action: 'author-edit', note: revision.note, authorDraftJson: revision.authorDraftJson }
+    const expectedSource = { artifactKey: revision.artifactKey, version: revision.expectedArtifactVersion, contentHash: revision.expectedArtifactHash }
+    if (!receipt || !await assertRecordInScope(scope, 'productProductionCommands', receipt, { owner: 'work' })
+      || receipt.type !== 'resume' || receipt.status !== 'succeeded'
+      || receipt.payloadHash !== await hashProductProductionValueV2(command)
+      || canonicalProductProductionJsonV2(result?.revisionAuthorization) !== canonicalProductProductionJsonV2(command)
+      || result?.buildNumber !== build.buildNumber || result?.controlEpoch !== build.controlEpoch
+      || canonicalProductProductionJsonV2(resolution) !== canonicalProductProductionJsonV2(expectedResolution)
+      || canonicalProductProductionJsonV2(failureState.revisionSource) !== canonicalProductProductionJsonV2(expectedSource)) {
+      throw new ProductProductionRecoveryDirectiveErrorV1('[product-production-context] 内容修订命令回执或候选已变化')
+    }
+    const baseline = (await db.productBuildArtifacts.where('buildId').equals(build.id!).toArray())
+      .find(row => row.artifactKey === revision.artifactKey && row.version === revision.expectedArtifactVersion
+        && row.contentHash === revision.expectedArtifactHash && row.controlEpoch < build.controlEpoch)
+    if (!baseline || !await assertRecordInScope(scope, 'productBuildArtifacts', baseline, { owner: 'work' })
+      || await hashProductProductionValueV2(JSON.parse(baseline.payloadJson)) !== baseline.contentHash) {
+      throw new ProductProductionRecoveryDirectiveErrorV1('[product-production-context] 内容修订原稿证据已变化')
+    }
+    return { resolvedDirective: true, resolution, previousFailure: null, snapshot: null, failedAttempt: null }
+  }
   const previousFailureValue = resolvedDirective ? failureState.previousFailure : failureState
   const previousFailure = previousFailureValue && typeof previousFailureValue === 'object'
     && !Array.isArray(previousFailureValue)

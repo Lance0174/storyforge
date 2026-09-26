@@ -8,7 +8,7 @@ import { db } from '../../src/lib/db/schema'
 import { getAgentSkillV1, TEXT_ADVENTURE_PRODUCTION_AGENT_IDS } from '../../src/lib/agent/skill-registry'
 import { prepareProductProductionAdoption } from '../../src/lib/product-production/adoption'
 import { executeProductProductionCommand } from '../../src/lib/product-production/commands'
-import { readTextAdventureRepairFeedbackV1 } from '../../src/lib/product-production/context'
+import { validateProductProductionRecoveryDirectiveV1, readTextAdventureRepairFeedbackV1 } from '../../src/lib/product-production/context'
 import { draftProductProductionBriefV3, suggestProductStartingPoints } from '../../src/lib/product-production/consultation'
 import { parseProductProductionBriefV3 } from '../../src/lib/product-production/contracts'
 import { hashProductProductionValueV2 } from '../../src/lib/product-production/hash'
@@ -64,6 +64,7 @@ import {
 import { putMediaBlobObject, sha256MediaData } from '../../src/lib/product-production/media-blob-store'
 import {
   executionBindingDriftInvalidatedTaskKeysV1,
+  prepareLegacyPausedProductBuildV1,
   runProductProductionUntilBlockedV1,
 } from '../../src/lib/product-production/scheduler'
 import { parseProductRuntimePackageV1 } from '../../src/lib/product-production/runtime-package'
@@ -4620,7 +4621,97 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     ])
   }, 30_000)
 
-  it.each(['content.product-module', 'content.adventure-side-quests', 'content.adventure-ambient-events'])('%s 作者修订走相同校验和持久回执，不伪造模型调用，并拒绝错任务或无效内容', async (repairTaskKey) => {
+  it.each(['content.story-bible', 'content.cast-bible'] as const)('%s 暂停后修订已验收内容：绑定命令与原稿，只使后代失效，作者正文零模型采纳', async (revisionKey) => {
+    const owned = await fixtureForProduct('text-adventure', { scale: 'short-arc', visualLevel: 'none', omitWorldArtifacts: true })
+    const requirement = owned.brief.capabilityRequirements.find(item => item.mediaClass === 'text')!
+    const bindingHash = 'a'.repeat(64)
+    const capabilityBindings = [{ requirementKey: requirement.requirementKey, adapterId: 'configured-text.v1', bindingHash }]
+    const outputs = fullLengthTextAdventureOutputs(owned.brief) as Record<string, unknown>
+    const calls: string[] = []
+    let pauseOnce = true
+    const runText: ProductionTextRunnerV1 = async request => {
+      const key = Object.keys(outputs).find(key => request.system.includes(`任务=${key}。`))!
+      calls.push(key)
+      if (key === (revisionKey === 'content.story-bible' ? 'content.cast-bible' : 'content.adventure-architecture') && pauseOnce) {
+        pauseOnce = false
+        expect((await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId,
+          command: { type: 'pause', commandId: 'story-revision.pause',
+            expectedStateRevision: (await db.productProductions.get(owned.productionId))!.stateRevision,
+            reason: '作者核对已完成的故事圣经' } })).ok).toBe(true)
+      }
+      return { output: JSON.stringify(key === 'media.requirements' ? { ...outputs[key] as object, visual: [], audio: [] } : outputs[key]),
+        usage: { inputTokens: 100, outputTokens: 100 }, bindingReceipt: {
+          schema: 'storyforge.provider-binding-receipt', version: 1, requirementKey: requirement.requirementKey,
+          adapterId: 'configured-text.v1', adapterVersion: 1, provider: 'fixture', model: 'fixture',
+          endpointOrigin: 'https://fixture.invalid', executionLocation: 'browser-direct', credentialSource: 'existing-ai-config',
+          credentialPresent: true, capabilityHash: bindingHash, boundAt: 1, receiptHash: 'b'.repeat(64),
+        } }
+    }
+    const execute = async () => runProductProductionUntilBlockedV1({ scope: owned.scope, productionId: owned.productionId, capabilityBindings,
+      executor: createConfiguredProductProductionExecutorV1({ production: (await db.productProductions.get(owned.productionId))!, brief: owned.brief, runText }) })
+    const first = await execute()
+    expect(first.buildStatus).toBe('paused')
+    const baseline = (await db.productBuildArtifacts.where('buildId').equals(first.buildId).toArray())
+      .find(row => row.artifactKey === revisionKey && row.status === 'accepted')!
+    expect(baseline).toBeTruthy()
+    const currentBuild = (await db.productBuilds.get(first.buildId))!
+    const currentProduction = (await db.productProductions.get(owned.productionId))!
+    const failure = JSON.parse((await prepareLegacyPausedProductBuildV1(owned.scope, currentBuild)).failureJson)
+    const edited = JSON.parse(baseline.payloadJson)
+    if (revisionKey === 'content.story-bible') edited.emotionalPromise = '在保留真实代价的选择中学会共同承担。'
+    else edited.characters[1].voice = '用简短的句子回应，先询问来意再提出条件。'
+    const revision = { artifactKey: revisionKey, expectedArtifactVersion: baseline.version,
+      expectedArtifactHash: baseline.contentHash, note: '纠正故事的情绪承诺，不改变世界事实',
+      authorDraftJson: JSON.stringify(edited) }
+    const command = { type: 'resume' as const, commandId: 'story-revision.resume', expectedStateRevision: currentProduction.stateRevision,
+      contentRevision: revision,
+      ...(failure.pausedProviderReservations?.length ? { pausedReservationDispositions: failure.pausedProviderReservations.map((r: {taskKey: string;runId: number;attempt: number;controlEpoch: number}) => ({
+        taskKey: r.taskKey, runId: r.runId, attempt: r.attempt, controlEpoch: r.controlEpoch, disposition: 'charge-reservation-upper-bound' as const,
+      })) } : {}),
+    }
+    const before = structuredClone(currentBuild)
+    expect((await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId,
+      command: { ...command, commandId: 'story-revision.stale', contentRevision: { ...revision, expectedArtifactHash: 'e'.repeat(64) } } })).ok).toBe(false)
+    expect(await db.productBuilds.get(first.buildId)).toEqual(before)
+    expect((await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId,
+      command: { ...command, commandId: 'story-revision.old-version', contentRevision: { ...revision, expectedArtifactVersion: baseline.version + 1 } } })).ok).toBe(false)
+    await db.productBuilds.update(first.buildId, { resumeState: 'preview-ready' })
+    expect((await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId,
+      command: { ...command, commandId: 'story-revision.wrong-stage' } })).ok).toBe(false)
+    await db.productBuilds.update(first.buildId, { resumeState: before.resumeState })
+    await db.productProductions.update(owned.productionId, { productType: 'avg' })
+    expect((await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId,
+      command: { ...command, commandId: 'story-revision.wrong-product' } })).ok).toBe(false)
+    await db.productProductions.update(owned.productionId, { productType: 'text-adventure' })
+    expect(await db.productBuilds.get(first.buildId)).toEqual(before)
+    const resumed = await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId, command })
+    expect(resumed.ok, JSON.stringify(resumed)).toBe(true)
+    expect(resumed.result.revisionAuthorization).toEqual(command)
+    expect((await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId, command })).replayed).toBe(true)
+    const verification = { scope: owned.scope, productProductionId: owned.productionId, productBuildId: first.buildId,
+      productProductionTaskKey: revisionKey, expectedState: 'resolved' as const }
+    expect((await validateProductProductionRecoveryDirectiveV1(verification)).snapshot).toBeNull()
+    const resumedBuild = (await db.productBuilds.get(first.buildId))!
+    const tampered = JSON.parse(resumedBuild.failureJson)
+    tampered.resolution.authorDraftJson = '{}'
+    await db.productBuilds.update(first.buildId, { failureJson: JSON.stringify(tampered) })
+    await expect(validateProductProductionRecoveryDirectiveV1(verification)).rejects.toThrow('候选已变化')
+    await db.productBuilds.update(first.buildId, { failureJson: resumedBuild.failureJson })
+    const completed = await execute()
+    expect(completed, JSON.stringify(completed)).toMatchObject({ terminal: true, buildStatus: 'release-ready' })
+    expect(calls.filter(key => key === 'content.story-bible')).toHaveLength(1)
+    expect(calls.filter(key => key === 'content.source-sufficiency')).toHaveLength(1)
+    const accepted = (await db.productBuildArtifacts.where('buildId').equals(first.buildId).toArray())
+      .find(row => row.artifactKey === revisionKey && row.controlEpoch === completed.controlEpoch)!
+    expect(JSON.parse(accepted.payloadJson)).toEqual(edited)
+    expect(JSON.parse(accepted.rightsJson).origin).toBe('author-revised-model-draft')
+    expect(JSON.parse(accepted.rightsJson).authorRevisionCommandId).toBe(command.commandId)
+    expect((await db.productBuildArtifacts.get(baseline.id!))!.payloadJson).toBe(baseline.payloadJson)
+    const events = await db.agentRunEvents.where('runId').equals(accepted.producerRunId!).toArray()
+    expect(events.some(event => event.type === 'model.requested')).toBe(false)
+  }, 60_000)
+
+  it.each(['content.story-bible', 'content.cast-bible', 'content.product-module', 'content.adventure-side-quests', 'content.adventure-ambient-events'])('%s 作者修订走相同校验和持久回执，不伪造模型调用，并拒绝错任务或无效内容', async (repairTaskKey) => {
     const owned = await fixtureForProduct('text-adventure', {
       scale: 'short-arc', visualLevel: 'none', omitWorldArtifacts: true,
     })
