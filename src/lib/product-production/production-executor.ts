@@ -3023,21 +3023,6 @@ function textAdventureNarrativeBeatForVisualV1(input: {
   return first
 }
 
-function textAdventureVisualBeatExcerptV1(textValue: string): string {
-  const visualTerms = ['雾潮', '光', '海', '潮钟', '钟体', '钟楼', '灯塔', '齿轮', '记忆匣', '钥匙', '风雪', '冰', '门', '窗', '走', '站', '坐', '手', '火', '倒塌', '退去', '升起']
-  const excluded = /证词|说的是|知道|意味着|必须做出选择|三条可能的路|一是|二是|三是|愿意支付|将成为|代价是/u
-  const sentences = textValue.split(/(?<=[。！？])/u).map(value => value.trim()).filter(Boolean)
-  const ranked = sentences.map((sentence, index) => ({
-    sentence,
-    index,
-    score: visualTerms.reduce((score, term) => score + Number(sentence.includes(term)), 0),
-  })).filter(item => item.score > 0 && !excluded.test(item.sentence))
-    .sort((left, right) => right.score - left.score || left.index - right.index)
-    .slice(0, 2)
-    .sort((left, right) => left.index - right.index)
-  return ranked.length > 0 ? ranked.map(item => item.sentence).join('') : sentences[0] ?? textValue
-}
-
 function textAdventureCharacterFramingPromptV1(
   character: ProductMediaCharacterAnchorV1,
   editorialJob: string,
@@ -3097,7 +3082,8 @@ function normalizeTextAdventureVisualRequirementPromptV1(input: {
   }
   const narrativeGroundedPrompt = input.mediaKind === 'cg' && input.narrativeBeat
     ? `${input.blueprint?.prompt ?? '关键叙事事件的原创插图'}。` +
-      `冻结叙事节拍（唯一事件事实）：${textAdventureVisualBeatExcerptV1(input.narrativeBeat.text)}。` +
+      `冻结叙事节拍（唯一事件事实）：${input.narrativeBeat.text.trim()}。` +
+      '完整节拍用于核对动作、道具及其状态。只描绘当下场景，下方角色锚点以外的提及人物不得入画；记录、回忆、猜测和内心感受不得改画成同场人物或新增事件。' +
       '只把该节拍已经发生的人物、动作、地点、道具与后果转成一个明确画面；不得新增或改写人物身份、生死、道具、地点、选择与因果。'
     : input.prompt
   const glyphSafePrompt = glyphSafeTextAdventureScenePromptV1(
@@ -3207,13 +3193,12 @@ export function parseProductMediaRequirementsArtifactV2(
     // carry a new beatKey while retaining characters and narrative from the old
     // beat (the exact mismatch Visual QA cannot repair by resampling).
     const frozenVisualBeat = cueBeat ?? sourceBeat
-    // Character anchors must be derived from the same excerpt that is actually
-    // sent to the image provider. A later sentence may discuss an absent or
-    // historical person (for example, a lost mentor) without depicting them.
-    // Binding from the full beat while rendering only the excerpt creates a
-    // contradictory cast contract.
+    // Preserve the entire selected beat for both provider grounding and cast
+    // binding. Keyword-ranked excerpts dropped quiet but essential actions
+    // (opening a coat, closing a notebook). The literal-action classifier still
+    // excludes people who are only mentioned in records or memories.
     const characterGroundingPrompt = frozenVisualBeat && !isCharacter
-      ? textAdventureVisualBeatExcerptV1(frozenVisualBeat.text)
+      ? frozenVisualBeat.text.trim()
       : rawPrompt
     const groundedSuppliedRefs = brief.intent.productType === 'text-adventure'
       && !isCharacter && characterAnchors.length > 0
@@ -3227,7 +3212,7 @@ export function parseProductMediaRequirementsArtifactV2(
           textAdventurePromptVisuallyDepictsCharacterV1(characterGroundingPrompt, character.name)
         )).map(character => character.characterKey)
       : []
-    const secondPersonPlayerRefs = frozenVisualBeat && !isCharacter && /(?:^|[，。；！？\s])你(?:将|要|正|已|在|走|站|伸|拿|握|转|看|按|打开|选择|决定)/u.test(frozenVisualBeat.text)
+    const secondPersonPlayerRefs = !isCharacter && /(?:^|[，。；！？\s])你(?:将|要|正|已|在|走|站|伸|拿|握|转|看|按|打开|合上|取出|翻开|抬|低头|借|选择|决定)|你(?:的)?(?:手(?:里|中)|脸)/u.test(characterGroundingPrompt)
       ? characterAnchors.filter(character => character.role === 'player').map(character => character.characterKey)
       : []
     const excludesCharactersByDesign = [

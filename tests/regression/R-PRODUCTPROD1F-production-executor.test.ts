@@ -4089,6 +4089,41 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     expect(curated.visual[4].beatKey).toBe('beat.act-2.001')
     expect(curated.visual[11].beatKey).toBe('beat.act-3.curated-ending')
     expect(curated.visual[11].prompt).toContain('窗外传来新的钟声')
+    // Quiet actions must survive the provider prompt; keyword-ranked top-two
+    // excerpts previously erased the opened coat, blank register and notebook.
+    const completeBeatNarrative = structuredClone(curatedNarrative)
+    completeBeatNarrative.nodes.push({
+      ...completeBeatNarrative.nodes[1], key: 'node.climax', title: '导师重逢',
+    })
+    completeBeatNarrative.beats.push({
+      beatKey: 'beat.act-3.coat', nodeKey: 'node.climax', kind: 'narration', speakerKey: null,
+      text: '沉砾站在工作台旁。旧工装内衬缝着密密的名字，他翻开衣角。右手两根铜制义指碰到台面，发出短促的轻响。他看见你手里的调音钥匙，先笑了一下，又低头认真看你的脸。', order: 0,
+    })
+    completeBeatNarrative.beats.find(beat => beat.beatKey === 'beat.act-1.curated')!.text =
+      '阿塔从抽屉里取出一本册子，翻开到某一页。某些行末尾的签名栏是空的。旁边的档案记载沉砾当年保存的记忆。'
+    completeBeatNarrative.beats.find(beat => beat.beatKey === 'beat.act-3.curated-ending')!.text =
+      '沉砾把灯拨近，让你能看清纸面。你读到第一次修钟的记录，知道那时自己曾紧张、曾笑过，却无法重新感觉那一刻。你合上笔记，没有再试图用多读一遍换回它。窗外的钟声传向岸边，下一次要怎样点亮，终于不再只由塔里的人说了算。'
+    const completeBeatRequirements = structuredClone(curatedRequirements)
+    completeBeatRequirements.visual[9].beatKey = 'beat.act-3.coat'
+    const completeBeatAnchors = anchors.map(anchor => anchor.characterKey === 'character.npc.1'
+      ? { ...anchor, name: '沉砾', publicIdentity: '58 岁的导师', visualAnchor: '灰白胡茬，右手两根铜制义指，旧工装' }
+      : anchor)
+    const completeBeats = parseProductMediaRequirementsArtifactV2(
+      completeBeatRequirements, owned.brief, completeBeatAnchors, completeBeatNarrative as never,
+    )
+    expect(completeBeats.visual[3].prompt).toContain('签名栏是空的')
+    expect(completeBeats.visual[3].characterAnchorRefs).toEqual(['character.npc.2'])
+    expect(completeBeats.visual[9].prompt).toContain('他翻开衣角')
+    expect(completeBeats.visual[9].prompt).toContain('右手两根铜制义指碰到台面')
+    expect(completeBeats.visual[9].characterAnchorRefs).toEqual(['character.npc.1', 'character.player'])
+    expect(completeBeats.visual[11].prompt).toContain('沉砾把灯拨近')
+    expect(completeBeats.visual[11].prompt).toContain('你合上笔记')
+    expect(completeBeats.visual[11].prompt).toContain('却无法重新感觉那一刻')
+    expect(completeBeats.visual[11].prompt).toContain('回忆、猜测和内心感受不得改画成同场人物或新增事件')
+    expect(completeBeats.visual[11].characterAnchorRefs).toEqual(['character.npc.1', 'character.player'])
+    const providerRequirements = parseProductMediaRequirementsArtifactV2(completeBeats, owned.brief, completeBeatAnchors)
+    expect(providerRequirements.visual[9].characterAnchorRefs).toEqual(completeBeats.visual[9].characterAnchorRefs)
+    expect(providerRequirements.visual[11].characterAnchorRefs).toEqual(completeBeats.visual[11].characterAnchorRefs)
     // A real but cross-act or non-ending reference cannot override the role.
     curatedRequirements.visual[3].beatKey = 'beat.act-2.003'
     curatedRequirements.visual[11].beatKey = 'beat.act-1.curated'
