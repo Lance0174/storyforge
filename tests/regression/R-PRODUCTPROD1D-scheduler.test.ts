@@ -25,6 +25,7 @@ import {
   textAdventureInvalidQualityRollbackSourceV1,
   invalidTextAdventureQualityReviewRollbackEpochV1,
   textAdventureQualityRollbackAlreadyAppliedV1,
+  productProductionRecoveryHasNewerCompatibleRootV1,
   recoveryInvalidatedTaskKeys,
   executionBindingDriftInvalidatedTaskKeysV1,
   effectiveTextProviderConcurrencyV1,
@@ -3260,6 +3261,87 @@ describe('R-PRODUCTPROD-1D · durable bounded DAG scheduler', () => {
     expect(designRows[1].producerRunId).toBe(designRows[0].producerRunId)
     expect(designRows[1].producerReceiptHash).toBe(designRows[0].producerReceiptHash)
     expect(designRows[1].inputHash).toBe(designRows[0].inputHash)
+  }, 30_000)
+
+  it('执行合同升级后已重新签收的根任务不会被旧审查拉回旧合同，缺少新签名仍不得跳过回滚', async () => {
+    const owned = await fixture('scheduler-obsolete-review-root')
+    const calls = new Map<string, number>()
+    const executor = executorFor(owned, calls, { active: 0, peak: 0 })
+    const capabilityBindings = [{
+      requirementKey: owned.brief.capabilityRequirements.find(item => item.mediaClass === 'text')!.requirementKey,
+      adapterId: 'configured-text-provider.v1',
+      bindingHash: await hashProductProductionValueV2({ provider: 'configured' }),
+    }]
+    const original = await runProductProductionSchedulerCycleV1({
+      scope: owned.scope, productionId: owned.productionId, executor, capabilityBindings,
+    })
+    await acceptProductBuildArtifact({
+      scope: owned.scope, buildId: original.buildId, controlEpoch: original.controlEpoch,
+      artifactKey: 'quality.adventure-review', kind: 'playtest-report',
+      payload: failedTextAdventureReview({ issues: [{
+        severity: 'blocking', artifactKey: 'content.story-bible', detail: 'prompt-injection',
+        recommendation: 'The context adopts an alternate identity and overrides core behavior directives.',
+      }] }),
+      inputHash: '5'.repeat(64), producerReceiptHash: '6'.repeat(64),
+    })
+    const production = (await db.productProductions.get(owned.productionId))!
+    await executeProductProductionCommand({
+      scope: owned.scope, productionId: owned.productionId,
+      command: { type: 'pause', commandId: 'obsolete-root.pause', expectedStateRevision: production.stateRevision, reason: '升级执行合同' },
+    })
+    const paused = (await db.productProductions.get(owned.productionId))!
+    await executeProductProductionCommand({
+      scope: owned.scope, productionId: owned.productionId,
+      command: { type: 'resume', commandId: 'obsolete-root.resume', expectedStateRevision: paused.stateRevision },
+    })
+    const build = (await db.productBuilds.get(original.buildId))!
+    const plan = await createProductProductionPlanV3({
+      brief: owned.brief, briefHash: build.briefHash,
+      buildNumber: build.buildNumber, controlEpoch: build.controlEpoch,
+    })
+    const input = {
+      scope: owned.scope, buildId: build.id!, plan,
+      originControlEpoch: original.controlEpoch, currentControlEpoch: build.controlEpoch,
+    }
+    expect(await productProductionRecoveryHasNewerCompatibleRootV1(input)).toBe(false)
+    const task = plan.tasks.find(task => task.taskKey === 'content.design')!
+    const skill = getAgentSkillV1(task.skillId!)
+    const previous = skill.promptVersion
+    skill.promptVersion = `${previous}.new-contract`
+    try {
+      // An obsolete root without a replacement is insufficient evidence.
+      expect(await productProductionRecoveryHasNewerCompatibleRootV1(input)).toBe(false)
+      await runProductProductionSchedulerCycleV1({
+        scope: owned.scope, productionId: owned.productionId, executor, capabilityBindings,
+      })
+      expect(calls.get('content.design')).toBe(2)
+      expect(await productProductionRecoveryHasNewerCompatibleRootV1(input)).toBe(true)
+      expect(await textAdventureInvalidQualityRollbackSourceV1({
+        buildId: build.id!, declaredControlEpoch: build.controlEpoch,
+      })).toBeNull()
+      expect(await productProductionRecoveryHasNewerCompatibleRootV1({
+        ...input, originControlEpoch: build.controlEpoch,
+      })).toBe(false)
+      expect(await invalidTextAdventureQualityReviewRollbackEpochV1({
+        buildId: build.id!, beforeControlEpoch: build.controlEpoch + 1,
+      })).toBe(original.controlEpoch)
+      const current = (await db.productProductions.get(owned.productionId))!
+      await executeProductProductionCommand({
+        scope: owned.scope, productionId: owned.productionId,
+        command: { type: 'pause', commandId: 'obsolete-root.pause-again', expectedStateRevision: current.stateRevision, reason: '模拟后续恢复' },
+      })
+      const pausedAgain = (await db.productProductions.get(owned.productionId))!
+      await executeProductProductionCommand({
+        scope: owned.scope, productionId: owned.productionId,
+        command: { type: 'resume', commandId: 'obsolete-root.resume-again', expectedStateRevision: pausedAgain.stateRevision },
+      })
+      await runProductProductionSchedulerCycleV1({
+        scope: owned.scope, productionId: owned.productionId, executor, capabilityBindings,
+      })
+      expect(calls.get('content.design')).toBe(2)
+    } finally {
+      skill.promptVersion = previous
+    }
   }, 30_000)
 
   it('再次暂停发生在合成 carry Run 之前时，用保留的原生产 Run 验证 binding 而不误判为需付费重试', async () => {

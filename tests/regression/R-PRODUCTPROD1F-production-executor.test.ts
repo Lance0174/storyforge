@@ -8,6 +8,7 @@ import { db } from '../../src/lib/db/schema'
 import { getAgentSkillV1, TEXT_ADVENTURE_PRODUCTION_AGENT_IDS } from '../../src/lib/agent/skill-registry'
 import { prepareProductProductionAdoption } from '../../src/lib/product-production/adoption'
 import { executeProductProductionCommand } from '../../src/lib/product-production/commands'
+import { readTextAdventureRepairFeedbackV1 } from '../../src/lib/product-production/context'
 import { draftProductProductionBriefV3, suggestProductStartingPoints } from '../../src/lib/product-production/consultation'
 import { parseProductProductionBriefV3 } from '../../src/lib/product-production/contracts'
 import { hashProductProductionValueV2 } from '../../src/lib/product-production/hash'
@@ -4619,7 +4620,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     ])
   }, 30_000)
 
-  it('作者修订走相同校验和持久回执，不伪造模型调用，并拒绝错任务或无效内容', async () => {
+  it.each(['content.product-module', 'content.adventure-side-quests', 'content.adventure-ambient-events'])('%s 作者修订走相同校验和持久回执，不伪造模型调用，并拒绝错任务或无效内容', async (repairTaskKey) => {
     const owned = await fixtureForProduct('text-adventure', {
       scale: 'short-arc', visualLevel: 'none', omitWorldArtifacts: true,
     })
@@ -4635,7 +4636,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     const runText: ProductionTextRunnerV1 = async request => {
       const taskKey = Object.keys(outputs).find(key => request.system.includes(`任务=${key}。`))!
       calls.push(taskKey)
-      return { output: JSON.stringify(taskKey === 'content.product-module' ? {} : taskKey === 'media.requirements' ? { ...outputs[taskKey], visual: [], audio: [] } : outputs[taskKey]),
+      return { output: JSON.stringify(taskKey === repairTaskKey ? {} : taskKey === 'media.requirements' ? { ...outputs[taskKey], visual: [], audio: [] } : outputs[taskKey]),
         usage: { inputTokens: 100, outputTokens: 100 }, bindingReceipt: {
           schema: 'storyforge.provider-binding-receipt', version: 1, requirementKey: requirement.requirementKey,
           adapterId: 'configured-text.v1', adapterVersion: 1, provider: 'fixture', model: 'fixture',
@@ -4647,21 +4648,33 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
       executor: createConfiguredProductProductionExecutorV1({ production: (await db.productProductions.get(owned.productionId))!, brief: owned.brief, runText }) })
     const first = await execute()
     expect(first.buildStatus).toBe('recovery-required')
-    const repair = async (draft: unknown, taskKey = 'content.product-module') => executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId,
+    const repair = async (draft: unknown, taskKey = repairTaskKey) => executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId,
       command: { type: 'resolve-blocker', commandId: `repair.${crypto.randomUUID()}`, expectedStateRevision: (await db.productProductions.get(owned.productionId))!.stateRevision,
         blockerKey: taskKey, resolution: { action: 'author-edit', note: '作者校订草稿', authorDraftJson: JSON.stringify(draft) } } })
-    expect((await repair(outputs['content.product-module'], 'content.design')).ok).toBe(false)
+    expect((await repair(outputs[repairTaskKey], 'content.design')).ok).toBe(false)
     expect((await repair({})).ok).toBe(true)
     expect((await execute()).buildStatus).toBe('recovery-required')
     // The professional DAG performs its two visible, bounded model attempts
     // before pausing. Author-edit recovery itself must add no model call.
-    expect(calls.filter(key => key === 'content.product-module')).toHaveLength(2)
-    expect((await repair(outputs['content.product-module'])).ok).toBe(true)
+    expect(calls.filter(key => key === repairTaskKey)).toHaveLength(2)
+    expect((await repair(outputs[repairTaskKey])).ok).toBe(true)
+    const feedbackInput = {
+      projectId: owned.scope.projectId, scope: owned.scope,
+      productProductionId: owned.productionId, productBuildId: first.buildId,
+      productProductionTaskKey: repairTaskKey,
+    }
+    const feedback = JSON.parse(await readTextAdventureRepairFeedbackV1(feedbackInput))
+    expect(feedback.authorRepairNote).toBe('作者校订草稿')
+    expect(feedback).not.toHaveProperty('authorDraftJson')
+    const otherFeedback = JSON.parse(await readTextAdventureRepairFeedbackV1({
+      ...feedbackInput, productProductionTaskKey: 'content.design',
+    }) || '{}')
+    expect(otherFeedback.authorRepairNote).toBeFalsy()
     const completed = await execute()
     expect(completed.buildStatus).toBe('release-ready')
-    expect(calls.filter(key => key === 'content.product-module')).toHaveLength(2)
+    expect(calls.filter(key => key === repairTaskKey)).toHaveLength(2)
     const artifact = await db.productBuildArtifacts.where('buildId').equals(completed.buildId)
-      .filter(row => row.artifactKey === 'content.product-module' && row.controlEpoch === completed.controlEpoch).first()
+      .filter(row => row.artifactKey === repairTaskKey && row.controlEpoch === completed.controlEpoch).first()
     expect(JSON.parse(artifact!.rightsJson).origin).toBe('author-revised-model-draft')
     const events = await db.agentRunEvents.where('runId').equals(artifact!.producerRunId!).toArray()
     expect(events.some(row => row.type === 'model.requested')).toBe(false)

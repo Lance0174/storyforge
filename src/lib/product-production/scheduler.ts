@@ -1455,6 +1455,18 @@ export async function textAdventureInvalidQualityRollbackSourceV1(input: {
     beforeControlEpoch: input.declaredControlEpoch + 1,
   })
   if (originControlEpoch == null) return null
+  const build = await db.productBuilds.get(input.buildId)
+  if (build?.controlEpoch === input.declaredControlEpoch && build.worldId != null && build.workId != null
+    && isSha256Hash(build.planHash)) {
+    let plan: ProductProductionPlanV3 | null = null
+    try { plan = parseProductProductionPlanV3(build.planJson) } catch { /* Legacy rows may not have a Plan; they cannot prove a newer prefix. */ }
+    if (plan && await hashProductProductionValueV2(plan) === build.planHash
+      && await productProductionRecoveryHasNewerCompatibleRootV1({
+        scope: { projectId: build.projectId, worldId: build.worldId, workId: build.workId },
+        buildId: input.buildId, plan, originControlEpoch,
+        currentControlEpoch: input.declaredControlEpoch,
+      })) return null
+  }
   const candidates = (await db.productBuildArtifacts.where('buildId').equals(input.buildId).toArray())
     .filter(row => row.artifactKey === 'quality.adventure-review'
       && row.controlEpoch === originControlEpoch
@@ -2270,11 +2282,19 @@ async function ensurePlan(input: {
     // Prefer the frozen direct-parent lineage. An old child epoch may contain a
     // copied review, but its authored ancestors can already be the broad parent
     // rewrite caused by that review; rolling back inside the child is too late.
-    const detectedReviewRollbackControlEpoch = parentQualityRollback == null
+    const historicalReviewRollbackControlEpoch = parentQualityRollback == null
       ? await invalidTextAdventureQualityReviewRollbackEpochV1({
           buildId: state.build.id!, beforeControlEpoch: plan.controlEpoch,
         })
       : null
+    const hasNewerCompatibleRoot = historicalReviewRollbackControlEpoch != null
+      && await productProductionRecoveryHasNewerCompatibleRootV1({
+        scope: input.scope, buildId: state.build.id!, plan,
+        originControlEpoch: historicalReviewRollbackControlEpoch,
+        currentControlEpoch: currentPlan.controlEpoch,
+      })
+    const detectedReviewRollbackControlEpoch = hasNewerCompatibleRoot
+      ? null : historicalReviewRollbackControlEpoch
     const reviewRollbackControlEpoch = detectedReviewRollbackControlEpoch != null
       && await textAdventureQualityRollbackAlreadyAppliedV1({
         buildId: state.build.id!,
@@ -2290,6 +2310,7 @@ async function ensurePlan(input: {
       ? null : activeTextAdventureQualityRepairCauseV1(state.build.failureJson)
     const regressedQualityPassEpoch = parentQualityRollback == null
       && reviewRollbackControlEpoch == null
+      && !hasNewerCompatibleRoot
       && activeQualityRepairCause != null
       ? await regressedTextAdventureQualityPassEpochV1({
           buildId: state.build.id!,
@@ -2298,6 +2319,7 @@ async function ensurePlan(input: {
       : null
     const qualityRepairSourceEpoch = parentQualityRollback == null
       && reviewRollbackControlEpoch == null
+      && !hasNewerCompatibleRoot
       && regressedQualityPassEpoch == null
       && (activeQualityRepairCause != null
         || legacyPausedTextAdventureQualityRecoveryV1(state.build.failureJson))
@@ -3314,6 +3336,39 @@ export async function textAdventureQualityRollbackAlreadyAppliedV1(input: {
     return cursor.controlEpoch === input.originControlEpoch
       && cursor.contentHash === current.contentHash
   })
+}
+
+/**
+ * An old invalid review cannot rewind a prefix rebuilt under a newer Skill or
+ * tool contract. Its original root would fail execution-binding validation and
+ * invalidate the entire DAG again, discarding every newly completed task at
+ * each author gate. Keep the newer signed root; ordinary per-task recovery still
+ * verifies all descendants and invalidates any incompatible or failed output.
+ */
+export async function productProductionRecoveryHasNewerCompatibleRootV1(input: {
+  scope: WorkspaceScope
+  buildId: number
+  plan: Pick<ProductProductionPlanV3, 'tasks'>
+  originControlEpoch: number
+  currentControlEpoch: number
+}): Promise<boolean> {
+  if (input.currentControlEpoch <= input.originControlEpoch) return false
+  const roots = input.plan.tasks.filter(task => task.skillId != null && task.dependsOn.length === 0)
+  if (roots.length === 0) return false
+  const rootPlan = { tasks: roots }
+  const [originDrift, currentDrift] = await Promise.all([
+    executionBindingDriftInvalidatedTaskKeysV1({
+      scope: input.scope, buildId: input.buildId, plan: rootPlan,
+      previousControlEpoch: input.originControlEpoch,
+      allowHistoricalProducerFallback: true,
+    }),
+    executionBindingDriftInvalidatedTaskKeysV1({
+      scope: input.scope, buildId: input.buildId, plan: rootPlan,
+      previousControlEpoch: input.currentControlEpoch,
+      allowHistoricalProducerFallback: true,
+    }),
+  ])
+  return roots.some(task => originDrift.has(task.taskKey) && !currentDrift.has(task.taskKey))
 }
 
 /**

@@ -1458,7 +1458,16 @@ export async function readTextAdventurePlaytestInputsV1(input: AssembleContextIn
 export async function readTextAdventureRepairFeedbackV1(input: AssembleContextInput): Promise<string> {
   const { production, build } = await productionAndBuild(input)
   if (!build) throw new Error('[product-production-context] 文字冒险修复反馈需要 productBuildId')
-  const pending = [contextRecord(JSON.parse(build.failureJson))]
+  const failureState = contextRecord(JSON.parse(build.failureJson))
+  const resolution = contextRecord(failureState.resolution)
+  // Notes are bound to this exact resolved blocker. The executor receives the
+  // full authored JSON separately; duplicating drafts here exhausts the world
+  // gateway's protected context budget before a local revision can validate.
+  const authorRepairNote = failureState.blockerKey === input.productProductionTaskKey
+    && ['retry', 'author-edit'].includes(String(resolution.action))
+    && typeof resolution.note === 'string'
+    ? contextText(resolution.note, 4_000) : null
+  const pending = [failureState]
   const visitedFailures = new Set<Record<string, unknown>>()
   let failure: Record<string, unknown> | null = null
   const taskFailures = new Map<string, {
@@ -1519,7 +1528,7 @@ export async function readTextAdventureRepairFeedbackV1(input: AssembleContextIn
   const review = latestReview
     && contextRecord(JSON.parse(latestReview.payloadJson)).passed === false
     ? latestReview : undefined
-  if (!failure && taskFailures.size === 0 && !review) return ''
+  if (!failure && taskFailures.size === 0 && !review && !authorRepairNote) return ''
   const payload = review ? contextRecord(JSON.parse(review.payloadJson)) : {}
   const reviewEvidenceInvalid = textAdventureQualityReviewAuthorityViolationsV1(payload.issues).length > 0
     || textAdventureQualityReviewScopeViolationsV1(payload.issues).length > 0
@@ -1877,11 +1886,11 @@ export async function readTextAdventureRepairFeedbackV1(input: AssembleContextIn
   ].map(issue => [
     `${issue.ownerArtifactKey}\n${issue.detail}\n${issue.recommendation}`, issue,
   ] as const)).values()].slice(0, 40)
-  if (blockingIssues.length === 0 && taskFailures.size === 0) return ''
+  if (blockingIssues.length === 0 && taskFailures.size === 0 && !authorRepairNote) return ''
   const baselineArtifact = targetTaskKey == null ? null : latestArtifacts.get(targetTaskKey) ?? null
   return JSON.stringify({
     schema: 'storyforge.text-adventure-repair-feedback', version: 1,
-    targetTaskKey,
+    targetTaskKey, authorRepairNote,
     source: review ? {
       artifactKey: review.artifactKey, artifactVersion: review.version,
       contentHash: review.contentHash, producerReceiptHash: review.producerReceiptHash,
