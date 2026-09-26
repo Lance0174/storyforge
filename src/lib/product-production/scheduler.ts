@@ -342,15 +342,18 @@ export async function prepareLegacyPausedProductBuildV1<T extends ProductBuildRe
     const binding = snapshot.contract.scope.productProduction
     const plan = parseProductProductionPlanV3(build.planJson)
     const task = plan.tasks.find(value => value.taskKey === taskKey)
+    // Run contracts require positive envelope limits, even for deterministic
+    // tasks. Compare the same floor used by taskContract; accounting stays
+    // anchored to the original reservation (including its zero model calls).
     if (!task || !binding || snapshot.run.productBuildId !== build.id
       || binding.productBuildId !== build.id || binding.buildNumber !== build.buildNumber
       || binding.taskKey !== taskKey || binding.controlEpoch !== failure.pausedFromControlEpoch
       || binding.planHash !== build.planHash || plan.controlEpoch !== binding.controlEpoch
       || await hashProductProductionValueV2(plan) !== build.planHash
       || snapshot.run.parentRunId !== ledger.rootRunId
-      || snapshot.contract.budget.maxInputTokens !== task.budgetReservation.inputTokens
-      || snapshot.contract.budget.maxOutputTokens !== task.budgetReservation.outputTokens
-      || snapshot.contract.budget.maxModelCalls !== task.budgetReservation.modelCalls) {
+      || snapshot.contract.budget.maxInputTokens !== Math.max(1, task.budgetReservation.inputTokens)
+      || snapshot.contract.budget.maxOutputTokens !== Math.max(1, task.budgetReservation.outputTokens)
+      || snapshot.contract.budget.maxModelCalls !== Math.max(1, task.budgetReservation.modelCalls)) {
       throw new Error('[product-production-scheduler] 旧暂停 Run 与冻结 Plan/预算不一致，不能恢复')
     }
     // A checkpoint/receipt deserves its original settlement path, not an

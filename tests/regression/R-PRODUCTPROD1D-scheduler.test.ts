@@ -2940,6 +2940,56 @@ describe('R-PRODUCTPROD-1D · durable bounded DAG scheduler', () => {
     }, 30_000,
   )
 
+  it('零模型装配任务暂停时按实际 Run 最小预算恢复，不增加模型调用', async () => {
+    const owned = await fixture('scheduler-deterministic-pause')
+    const base = executorFor(owned, new Map(), { active: 0, peak: 0 })
+    let rejectTask!: (error: Error) => void
+    let started!: () => void
+    const taskStarted = new Promise<void>(resolve => { started = resolve })
+    const cycle = runProductProductionUntilBlockedV1({
+      scope: owned.scope, productionId: owned.productionId,
+      executor: async request => {
+        if (request.task.taskKey !== 'integration.package') return base(request)
+        expect(request.task.executionMode).toBe('deterministic')
+        expect(request.task.budgetReservation).toMatchObject({ outputTokens: 0, modelCalls: 0 })
+        started()
+        return new Promise<ProductProductionTaskExecutionResultV1>((_, reject) => { rejectTask = reject })
+      },
+      capabilityBindings: [{
+        requirementKey: owned.brief.capabilityRequirements.find(item => item.mediaClass === 'text')!.requirementKey,
+        adapterId: 'configured-text-provider.v1', bindingHash: await hashProductProductionValueV2({ provider: 'configured' }),
+      }],
+    })
+    await Promise.race([taskStarted, cycle.then(result => { throw new Error(JSON.stringify(result.tasks.filter(task => task.status === 'blocked').map(task => ({ taskKey: task.taskKey, blocker: task.blocker })))) })])
+    const original = (await db.productBuilds.where('productionId').equals(owned.productionId).first())!
+    const ledger = JSON.parse(original.budgetLedgerJson)
+    const entry = ledger.tasks['integration.package']
+    const run = (await db.agentRuns.get(entry.runId))!
+    expect(JSON.parse(run.contractJson).budget).toMatchObject({ maxOutputTokens: 1, maxModelCalls: 1 })
+    const production = (await db.productProductions.get(owned.productionId))!
+    expect((await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId,
+      command: { type: 'pause', commandId: 'deterministic.pause', expectedStateRevision: production.stateRevision, reason: '暂停装配' },
+    })).ok).toBe(true)
+    rejectTask(new Error('author-paused'))
+    await cycle
+    ledger.attempts = ledger.attempts.filter((attempt: { runId: number }) => attempt.runId !== entry.runId)
+    await db.productBuilds.update(original.id!, { budgetLedgerJson: canonicalProductProductionJsonV2(ledger),
+      failureJson: JSON.stringify({ code: 'user-paused', pausedFromControlEpoch: original.controlEpoch }),
+    })
+    const persisted = (await db.productBuilds.get(original.id!))!
+    const prepared = await prepareLegacyPausedProductBuildV1(owned.scope, persisted)
+    const settlement = JSON.parse(prepared.budgetLedgerJson).attempts.find((a: {runId: number}) => a.runId === entry.runId)
+    expect(settlement).toMatchObject({ usage: { modelCalls: 0, outputTokens: 0, costUsd: 0 } })
+    expect(JSON.parse(prepared.failureJson).pausedProviderReservations).toBeUndefined()
+    expect(await db.productBuilds.get(original.id!)).toEqual(persisted)
+    await expect(prepareLegacyPausedProductBuildV1(owned.scope, { ...persisted, planHash: '0'.repeat(64) }))
+      .rejects.toThrow('冻结 Plan')
+    const paused = (await db.productProductions.get(owned.productionId))!
+    expect((await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId,
+      command: { type: 'resume', commandId: 'deterministic.resume', expectedStateRevision: paused.stateRevision },
+    })).ok).toBe(true)
+  }, 30_000)
+
   it('候选检查点后崩溃会从 durable payload 恢复，不重复调用已计费 executor', async () => {
     const owned = await fixture('scheduler-recovery')
     const calls = new Map<string, number>()
