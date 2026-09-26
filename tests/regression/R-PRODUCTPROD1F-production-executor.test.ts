@@ -63,6 +63,7 @@ import {
 } from '../../src/lib/product-production/production-executor'
 import { putMediaBlobObject, sha256MediaData } from '../../src/lib/product-production/media-blob-store'
 import {
+  assertProductProductionBudgetLedgerV1,
   executionBindingDriftInvalidatedTaskKeysV1,
   prepareLegacyPausedProductBuildV1,
   runProductProductionUntilBlockedV1,
@@ -4621,7 +4622,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     ])
   }, 30_000)
 
-  it.each(['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes'] as const)('%s 暂停后修订已验收内容：绑定命令与原稿，只使后代失效，作者正文零模型采纳', async (revisionKey) => {
+  it.each(['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan'] as const)('%s 暂停后修订已验收内容：绑定命令与原稿，只使后代失效，作者正文零模型采纳', async (revisionKey) => {
     const owned = await fixtureForProduct('text-adventure', { scale: 'short-arc', visualLevel: 'none', omitWorldArtifacts: true })
     const requirement = owned.brief.capabilityRequirements.find(item => item.mediaClass === 'text')!
     const bindingHash = 'a'.repeat(64)
@@ -4632,7 +4633,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     const runText: ProductionTextRunnerV1 = async request => {
       const key = Object.keys(outputs).find(key => request.system.includes(`任务=${key}。`))!
       calls.push(key)
-      if (key === ({ 'content.story-bible': 'content.cast-bible', 'content.cast-bible': 'content.adventure-architecture', 'content.adventure-architecture': 'content.narrative-arc-scenes', 'content.narrative-arc-scenes': 'content.narrative-decision-plan' }[revisionKey]) && pauseOnce) {
+      if (key === ({ 'content.story-bible': 'content.cast-bible', 'content.cast-bible': 'content.adventure-architecture', 'content.adventure-architecture': 'content.narrative-arc-scenes', 'content.narrative-arc-scenes': 'content.narrative-decision-plan', 'content.narrative-decision-plan': 'content.ending-route-plan', 'content.ending-route-plan': 'content.main-quest-plan' }[revisionKey]) && pauseOnce) {
         pauseOnce = false
         expect((await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId,
           command: { type: 'pause', commandId: 'story-revision.pause',
@@ -4661,7 +4662,9 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     if (revisionKey === 'content.story-bible') edited.emotionalPromise = '在保留真实代价的选择中学会共同承担。'
     else if (revisionKey === 'content.cast-bible') edited.characters[1].voice = '用简短的句子回应，先询问来意再提出条件。'
     else if (revisionKey === 'content.adventure-architecture') edited.regions[0].description = '潮汐推动的岛群，居民以互助维持航路。'
-    else edited.acts[0].sceneCards[0].purpose = '先呈现可见风险，再让玩家选择实际行动。'
+    else if (revisionKey === 'content.narrative-arc-scenes') edited.acts[0].sceneCards[0].purpose = '先呈现可见风险，再让玩家选择实际行动。'
+    else if (revisionKey === 'content.narrative-decision-plan') edited.decisions[0].prompt = '两种行动都付出代价，你愿意先承担哪一种？'
+    else edited.routes[0].rationale = '此前的持续承诺使这个结局成为具体行动的结果。'
     const revision = { artifactKey: revisionKey, expectedArtifactVersion: baseline.version,
       expectedArtifactHash: baseline.contentHash, note: '纠正故事的情绪承诺，不改变世界事实',
       authorDraftJson: JSON.stringify(edited) }
@@ -4672,6 +4675,8 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
       })) } : {}),
     }
     const before = structuredClone(currentBuild)
+    assertProductProductionBudgetLedgerV1(before.budgetLedgerJson)
+    assertProductProductionBudgetLedgerV1((await prepareLegacyPausedProductBuildV1(owned.scope, currentBuild)).budgetLedgerJson)
     expect((await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId,
       command: { ...command, commandId: 'story-revision.stale', contentRevision: { ...revision, expectedArtifactHash: 'e'.repeat(64) } } })).ok).toBe(false)
     expect(await db.productBuilds.get(first.buildId)).toEqual(before)
@@ -4713,7 +4718,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     expect(events.some(event => event.type === 'model.requested')).toBe(false)
   }, 60_000)
 
-  it.each(['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.product-module', 'content.adventure-side-quests', 'content.adventure-ambient-events'])('%s 作者修订走相同校验和持久回执，不伪造模型调用，并拒绝错任务或无效内容', async (repairTaskKey) => {
+  it.each(['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan', 'content.product-module', 'content.adventure-side-quests', 'content.adventure-ambient-events'])('%s 作者修订走相同校验和持久回执，不伪造模型调用，并拒绝错任务或无效内容', async (repairTaskKey) => {
     const owned = await fixtureForProduct('text-adventure', {
       scale: 'short-arc', visualLevel: 'none', omitWorldArtifacts: true,
     })

@@ -1520,10 +1520,12 @@ async function applyCommand(input: {
         'content.cast-bible': 'text-adventure.cast-bible.v1',
         'content.adventure-architecture': 'text-adventure.production-architecture.v1',
         'content.narrative-arc-scenes': 'text-adventure.narrative-design.v1',
+        'content.narrative-decision-plan': 'text-adventure.narrative-design.v1',
+        'content.ending-route-plan': 'text-adventure.ending-route-plan.v1',
       }[contentRevision.artifactKey])
         || task.executionMode !== 'model' || task.failurePolicy !== 'pause'
         || task.outputArtifactKeys.length !== 1 || task.outputArtifactKeys[0] !== contentRevision.artifactKey) {
-        reject('invalid-state-transition', '内容修订未命中登记的故事、角色、空间架构或场景计划岗位')
+        reject('invalid-state-transition', '内容修订未命中登记的故事、角色、空间架构、场景、决定或结局计划岗位')
       }
       const baseline = (await db.productBuildArtifacts.where('buildId').equals(build.id!).toArray())
         .filter(row => row.artifactKey === contentRevision.artifactKey && row.controlEpoch === plan.controlEpoch

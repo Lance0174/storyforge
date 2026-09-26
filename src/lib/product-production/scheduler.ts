@@ -359,15 +359,32 @@ export async function prepareLegacyPausedProductBuildV1<T extends ProductBuildRe
       || snapshot.events.some(event => event.type === 'candidate.persisted')) {
       throw new Error('[product-production-scheduler] 旧暂停 Run 存在未结算候选，需先恢复原回执')
     }
+    // A sibling can pause after step.started but before preflight updates
+    // the claim's attempt=0. Recover the actual attempt from the verified
+    // Run, never fabricate an attempt-zero settlement. A genuinely unstarted
+    // claim needs no settlement; the command guards its exact Run sequence.
+    const actualAttempt = entry.attempt || snapshot.projection.steps[taskKey]?.attempt || 0
+    if (actualAttempt === 0) {
+      if (snapshot.events.some(event => event.type === 'model.requested' || event.type === 'tool.called')) {
+        throw new Error('[product-production-scheduler] 未启动 claim 与实际执行证据不一致，不能恢复')
+      }
+      onVerifiedRun?.(snapshot.run)
+      continue
+    }
+    ledger.tasks[taskKey] = { ...entry, attempt: actualAttempt }
+    if (ledger.attempts.some(attempt => attempt.runId === entry.runId && attempt.attempt === actualAttempt)) {
+      onVerifiedRun?.(snapshot.run)
+      continue
+    }
     const requested = snapshot.events.some(event => (
       (event.type === 'model.requested' || event.type === 'tool.called')
-      && event.payload.stepId === taskKey && event.payload.attempt === entry.attempt
+      && event.payload.stepId === taskKey && event.payload.attempt === actualAttempt
     ))
     if (task.executionMode !== 'model' && task.executionMode !== 'deterministic') {
       throw new Error('[product-production-scheduler] 旧媒资暂停需独立核对 provider 证据')
     }
     ledger.attempts.push({
-      taskKey, runId: entry.runId, attempt: entry.attempt,
+      taskKey, runId: entry.runId, attempt: actualAttempt,
       controlEpoch: binding.controlEpoch, idempotencyKey: entry.idempotencyKey,
       outcome: 'failed', usage: requested ? reservationUsage(task.budgetReservation) : zeroUsage(),
       usageKnown: !requested, errorCode: requested ? 'provider-result-unknown' : 'author-paused-before-dispatch',
@@ -3389,7 +3406,7 @@ export async function recoveryInvalidatedTaskKeys(input: {
     && !Array.isArray(recovery.resolution)
     ? recovery.resolution as Record<string, unknown> : null
   if (recovery.code === 'author-revised-content' && typeof recovery.blockerKey === 'string'
-    && ['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes'].includes(recovery.blockerKey)
+    && ['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan'].includes(recovery.blockerKey)
     && recoveryResolution?.action === 'author-edit') {
     return expandProductProductionInvalidatedTaskClosureV1(input.plan, [recovery.blockerKey])
   }
