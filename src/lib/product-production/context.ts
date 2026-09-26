@@ -925,6 +925,20 @@ export async function readTextAdventureQualityInputsV1(input: AssembleContextInp
     const sceneKey = contextText(scene.key, 200)
     return sceneKey ? [[sceneKey, scene] as const] : []
   }))
+  // Structure review visits every route echo. Intern repeated text segments so
+  // it retains the complete compiled prose without multiplying identical
+  // decision/cost sentences by every downstream scene. Joining the referenced
+  // strings in order is lossless, including author-supplied delimiter text.
+  const echoTextDictionary: string[] = []
+  const echoTextReferences = new Map<string, number>()
+  const internEchoText = (value: string): number => {
+    const existing = echoTextReferences.get(value)
+    if (existing != null) return existing
+    const index = echoTextDictionary.length
+    echoTextDictionary.push(value)
+    echoTextReferences.set(value, index)
+    return index
+  }
   const decisionChoiceBindings = decisions.map(decision => {
     const choiceKeys = outgoingChoiceKeysByNodeKey[contextText(decision.sceneKey, 200)] ?? []
     return {
@@ -950,20 +964,14 @@ export async function readTextAdventureQualityInputsV1(input: AssembleContextInp
             sceneKey: value,
             actionKey: `action.echo.${decision.key}.${option.key}.${value}`,
             requiredConditionKey: option.persistentEffectKey,
-            label: presentation.label,
-            // One exact primary success echo is the authored route evidence.
-            // description/costly/failure/unavailable are fixed compiler
-            // templates derived from the same option, not independent story
-            // content; repeating them across every scope obscures the prose
-            // the act reviewer actually owns.
-            // The structure reviewer needs the authored route echo, but not the
-            // same full local prose that the owning act reviewer receives. A
-            // real 60-minute flagship packet reached 31,962 estimated tokens
-            // against this registered source's 32k ceiling when every echo
-            // kept 180 characters. Keep a meaningful 120-character causal
-            // sample here; the act packet and accepted narrative retain the
-            // complete player-visible text under their own authority.
-            successText: contextText(presentation.successText, scope === 'structure' ? 120 : 260),
+            ...(scope === 'structure' ? {
+              labelTextRef: internEchoText(presentation.label),
+              successTextRefs: presentation.successText
+                .split(/(?=你先前面对|眼前的冲突)/u).map(internEchoText),
+            } : {
+              label: presentation.label,
+              successText: contextText(presentation.successText, 260),
+            }),
           }]
         }),
       })),
@@ -1289,6 +1297,10 @@ export async function readTextAdventureQualityInputsV1(input: AssembleContextInp
       incomingChoiceKeysByNodeKey,
       outgoingChoiceKeysByNodeKey,
       decisionChoiceBindings,
+      ...(scope === 'structure' ? {
+        echoTextDictionary,
+        echoTextEncoding: 'labelTextRef indexes echoTextDictionary; successTextRefs indexes the same dictionary and concatenates in order with no separator to recover the complete exact successText. No echo text is omitted.',
+      } : {}),
       endingRouteRequirements,
       rule: '此处是冻结图事实。不得把已列出的入边、出边或 reachable node 误报为缺失；decisionChoiceBindings 是运行编译器按冻结顺序应用的 option→choice 精确绑定，options[].echoes 是将进入运行包的条件化玩家可见回响精确投影，不得自行猜测、交换、解绑或声称已列回响不存在。endingRouteRequirements 是已经过互斥、完备与可达性穷举验证的结局运行条件，最终场景 choice.availableConditionJson 不是结局资格 owner；不得要求用最终菜单覆盖或重复这些条件。只可评价实际玩家可见措辞、代价、差异和回响质量。',
     },
@@ -1364,7 +1376,9 @@ export async function readTextAdventureQualityInputsV1(input: AssembleContextInp
       playerVisibleBeatText: scope === 'structure'
         ? 'one-beat-sample-per-node'
         : 'all-accepted-beats-without-node-summary-duplication',
-      routeEchoProjection: 'edge-authority-plus-primary-compiled-success-echo',
+      routeEchoProjection: scope === 'structure'
+        ? 'lossless-text-dictionary-plus-every-echo-binding'
+        : 'edge-authority-plus-primary-compiled-success-echo',
       castProjection: scope === 'structure'
         ? 'all-cast'
         : 'active-scene-ending-speakers',
@@ -1406,7 +1420,10 @@ export async function readTextAdventureQualityInputsV1(input: AssembleContextInp
   }
   const serialized = JSON.stringify(packet)
   const estimatedTokens = estimateTokens(serialized)
-  if (estimatedTokens > 31_500) {
+  // The registered review source has a 40k envelope. The actual frozen Run
+  // input budget is still enforced by context assembly/Harness, so this does
+  // not enlarge a production's authorization or an individual task contract.
+  if (estimatedTokens > 39_500) {
     const sectionTokens: Record<string, number> = Object.fromEntries(Object.entries(packet).map(([key, value]) => [
       key,
       estimateTokens(JSON.stringify(value)),
@@ -1417,7 +1434,7 @@ export async function readTextAdventureQualityInputsV1(input: AssembleContextInp
     sectionTokens['questScript.side'] = estimateTokens(JSON.stringify(packet.questScript.side))
     sectionTokens['questScript.ambient'] = estimateTokens(JSON.stringify(packet.questScript.ambient))
     throw new Error(
-      `[product-production-context] 文字冒险质量审查 ${scope} 投影超过登记预算:${estimatedTokens}/31500 sections=${JSON.stringify(sectionTokens)}`,
+      `[product-production-context] 文字冒险质量审查 ${scope} 投影超过登记预算:${estimatedTokens}/39500 sections=${JSON.stringify(sectionTokens)}`,
     )
   }
   return serialized

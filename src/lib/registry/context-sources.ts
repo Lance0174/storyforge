@@ -2002,7 +2002,7 @@ export const CONTEXT_SOURCES: ContextSource[] = [
     scope: 'project',
     layer: 'L0',
     ownerFrom: 'work',
-    budgetTokens: 32_000,
+    budgetTokens: 40_000,
     protectedFromTrim: true,
     enabled: input => Number.isInteger(input.productBuildId)
       && /^content\.adventure-quality-review(?:\.(?:structure|act-[123]))?$/.test(

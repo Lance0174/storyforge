@@ -6998,12 +6998,49 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
             echoes: expect.arrayContaining([expect.objectContaining({
               actionKey: expect.stringContaining('action.echo.decision.1.option.1.1.'),
               requiredConditionKey: expect.any(String),
-              successText: expect.stringContaining('只属于这条路线的回应'),
+              labelTextRef: expect.any(Number),
+              successTextRefs: expect.arrayContaining([expect.any(Number)]),
             })]),
           }),
         ]),
       }),
     ]))
+    const originalArcRow = (await db.productBuildArtifacts.where('buildId').equals(projection.buildId).toArray())
+      .filter(row => row.artifactKey === 'content.narrative-arc-plan')
+      .sort((left, right) => right.version - left.version)[0]
+    const originalArc = JSON.parse(originalArcRow.payloadJson)
+    const echoDictionary = structureProjection.graphFacts.echoTextDictionary
+    expect(new Set(echoDictionary).size).toBe(echoDictionary.length)
+    let expandedEchoCharacters = 0
+    for (const binding of structureProjection.graphFacts.decisionChoiceBindings) {
+      const decision = structureProjection.arcPlan.decisions.find(item => item.key === binding.decisionKey)!
+      for (const option of binding.options) {
+        const plannedOption = decision.options.find(item => item.key === option.optionKey)!
+        expect(option.echoes.map(echo => echo.sceneKey)).toEqual(plannedOption.echoSceneKeys)
+        for (const echo of option.echoes) {
+          const scene = structureProjection.arcPlan.acts.flatMap(act => act.sceneCards)
+            .find(item => item.key === echo.sceneKey)!
+          const expanded = echo.successTextRefs.map(index => echoDictionary[index]).join('')
+          // The act packet keeps a longer conflict than the structure scene
+          // card, so compare exact compiled strings against the original arc.
+          const originalScene = originalArc.acts.flatMap(act => act.sceneCards)
+            .find(item => item.key === echo.sceneKey)!
+          const expected = textAdventureDecisionEchoPresentationV1({
+            decisionPrompt: decision.prompt,
+            optionLabel: plannedOption.label,
+            optionCost: plannedOption.cost,
+            sceneTitle: scene.title,
+            sceneConflict: originalScene.conflict.length <= 100
+              ? originalScene.conflict : `${originalScene.conflict.slice(0, 100)}…`,
+          })
+          expect(echoDictionary[echo.labelTextRef]).toBe(expected.label)
+          expect(expanded).toBe(expected.successText)
+          expect(expanded).toContain('只属于这条路线的回应')
+          expandedEchoCharacters += expanded.length
+        }
+      }
+    }
+    expect(echoDictionary.join('').length).toBeLessThan(expandedEchoCharacters)
     expect(structureProjection.reviewScope.decisionKeys.length).toBeGreaterThan(0)
     expect(structureProjection.reviewScope.optionKeys.length).toBeGreaterThan(0)
     expect(structureProjection.reviewScope.alternativeKeys.length).toBeGreaterThan(0)
