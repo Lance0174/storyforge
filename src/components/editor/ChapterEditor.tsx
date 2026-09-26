@@ -204,6 +204,7 @@ import {
   isProseGenerationCandidateCurrentV1,
   markProseGenerationStaleV1,
   persistProseGenerationCandidateV1,
+  reviseProseGenerationCandidateV1,
   readLatestProseGenerationCandidateV1,
   recordProseGenerationCandidateV1,
   rejectProseGenerationCandidateV1,
@@ -268,13 +269,18 @@ export default function ChapterEditor({ project, outlineNodeId }: Props) {
   const activeWork = useActiveWork(project)
   const {
     chapters,
-    currentChapter,
+    currentChapter: storeChapter,
     selectChapter,
     getOrCreateByOutlineNode,
     updateChapter,
     refreshChapter,
     loadAll: loadChapters,
   } = useChapterStore()
+  // A keyed editor can mount while the shared store still points at the
+  // previous chapter. Do not render, recover, or save against that old row.
+  const currentChapter = storeChapter && storeChapter.projectId === project.id
+    && (outlineNodeId == null || storeChapter.outlineNodeId === outlineNodeId)
+    ? storeChapter : null
   const { nodes, updateNode, loadAll: loadOutlineNodes } = useOutlineStore()
   const { cards: stateCards, loadAll: loadStateCards, buildStateContext, buildSelectiveStateContext, applyDiffs } = useStateCardStore()
   const { characters, loadAll: loadCharacters } = useCharacterStore()
@@ -746,7 +752,7 @@ export default function ChapterEditor({ project, outlineNodeId }: Props) {
           scope,
           candidate: run.candidate,
         })
-        if (recovered) {
+        if (active && recovered) {
           let currentSnapshot = recovered
           if (recovered.projection.steps[CHAPTER_POST_ADOPTION_STEP_IDS_V1.organization]?.status === 'succeeded') {
             try {
@@ -758,6 +764,7 @@ export default function ChapterEditor({ project, outlineNodeId }: Props) {
               // Earlier post-adoption steps may still need recovery or author confirmation.
             }
           }
+          if (!active) return
           transitionSnapshotRef.current = currentSnapshot
           setPostAdoptionRunId(currentSnapshot.run.id)
           setPostAdoptionChainState(chapterPostAdoptionChainStateV1(currentSnapshot))
@@ -780,7 +787,9 @@ export default function ChapterEditor({ project, outlineNodeId }: Props) {
           toConsistencyAuditResult(run.candidate),
         )
       }
-    })()
+    })().catch(error => {
+      if (active) setTransitionError(error instanceof Error ? error.message : '一致性记录恢复失败')
+    })
     return () => { active = false }
   }, [currentChapter?.id, project.id])
   useEffect(() => {
@@ -2742,7 +2751,7 @@ export default function ChapterEditor({ project, outlineNodeId }: Props) {
 
     // H7:正文生成/续写的确认先经过 durable candidate + adopt(CAS)，再更新编辑器。
     // 这样作者看到的内容、正式 chapters 行和后处理 barrier 绑定在同一份候选证据上。
-    const durableCandidate = shouldAutoProcess ? proseCandidateRef.current : null
+    let durableCandidate = shouldAutoProcess ? proseCandidateRef.current : null
     if (durableCandidate && durableCandidate.operation === aiAction) {
       const beforeHtml = editorRef.current.getHTML()
       let fullHtml = html
@@ -2755,6 +2764,11 @@ export default function ChapterEditor({ project, outlineNodeId }: Props) {
       const fullWordCount = countWords(fullText)
       try {
         const scope = await resolveScopeLike(project.id!)
+        if (text !== durableCandidate.outputText) {
+          durableCandidate = await reviseProseGenerationCandidateV1({ scope, candidate: durableCandidate, outputText: text })
+          setProseCandidate(durableCandidate)
+          proseCandidateRef.current = durableCandidate
+        }
         const verification = await commitProseGenerationAdoptionV1({
           scope,
           runId: durableCandidate.durable.runId,
@@ -3250,6 +3264,7 @@ export default function ChapterEditor({ project, outlineNodeId }: Props) {
       {(ai.output || ai.isStreaming || ai.error) && (
         <div className="mb-3">
           <AIStreamOutput output={ai.output} isStreaming={ai.isStreaming} error={ai.error} tokenUsage={ai.tokenUsage}
+            editable={!!proseCandidate && !proseCandidate.semanticReview}
             onStop={ai.stop}
             onAccept={(
               ai.operation === 'generate' || ai.operation === 'continue'
@@ -3487,7 +3502,7 @@ export default function ChapterEditor({ project, outlineNodeId }: Props) {
           />
         </Suspense>
       ) : (
-      <div className="mx-auto max-w-3xl rounded-2xl border border-border bg-bg-elevated px-8 py-8 shadow-theme-md">
+      <div className="mx-auto max-w-3xl rounded-2xl border border-border bg-bg-elevated px-3 sm:px-8 py-8 shadow-theme-md">
         <RichEditor
           ref={editorRef}
           value={content}

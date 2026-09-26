@@ -1,11 +1,13 @@
 import { CTextarea } from '../shared/CompositionInput'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Save, X, ChevronDown } from 'lucide-react'
 import { useProjectStore } from '../../stores/project'
 import { useWorldGroupStore } from '../../stores/world-group'
 import type { Project } from '../../lib/types'
 import { GENRE_OPTIONS } from '../../lib/types'
 import { useActiveWork } from '../../hooks/useActiveWork'
+import { useBeforeUnload } from '../../hooks/useBeforeUnload'
+import { coordinatePendingEditV1, registerPendingDraftFlusherV1 } from '../../lib/authoring/pending-edit-coordinator'
 
 // 按 group 分组
 const GENRE_GROUPS = Array.from(
@@ -31,39 +33,75 @@ export default function ProjectInfoPanel({ project, onUpdate }: ProjectInfoPanel
     targetWordCount: 500_000,
   })
   const [saving, setSaving] = useState(false)
+  const [dirty, setDirty] = useState(false)
+  const [error, setError] = useState('')
+  const dirtyRef = useRef(false)
+  const formRef = useRef(form)
+  const pendingCount = useRef(0)
+  useBeforeUnload(dirty || saving)
+  const changeForm = (next: typeof form) => {
+    formRef.current = next
+    dirtyRef.current = true
+    setDirty(true)
+    setForm(next)
+  }
   const [showGenreDropdown, setShowGenreDropdown] = useState(false)
 
   useEffect(() => {
-    if (!activeWork) return
-    setForm({
+    if (!activeWork || activeWork.id !== project.activeWorkId || dirtyRef.current) return
+    const next = {
       title: activeWork.title,
       genres: [...activeWork.genres],
       description: activeWork.description,
       targetWordCount: activeWork.targetWordCount,
-    })
-  }, [activeWork])
-
-  const handleSave = async () => {
-    if (!project.id || !activeWork) return
-    setSaving(true)
-    const updates = {
-      title: form.title,
-      genres: form.genres,
-      description: form.description,
-      targetWordCount: form.targetWordCount,
     }
-    await updateActiveWork(project.id, updates)
-    onUpdate(project)
-    setSaving(false)
-  }
+    formRef.current = next
+    setForm(next)
+  }, [activeWork, project.activeWorkId])
+
+  const handleSave = useCallback(async () => {
+    if (!dirtyRef.current) return
+    if (!project.id || !activeWork || activeWork.id !== project.activeWorkId) {
+      throw new Error('作品仍在加载，请稍后保存。')
+    }
+    const snapshot = formRef.current
+    pendingCount.current++
+    setSaving(true)
+    setError('')
+    try {
+      await coordinatePendingEditV1({
+        key: `work-info:${activeWork.id}`,
+        persist: () => updateActiveWork(project.id!, snapshot),
+      })
+      if (formRef.current === snapshot) {
+        dirtyRef.current = false
+        setDirty(false)
+      }
+      onUpdate(project)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '保存失败，请重试。')
+      throw cause
+    } finally {
+      pendingCount.current--
+      setSaving(pendingCount.current > 0)
+    }
+  }, [activeWork, onUpdate, project, updateActiveWork])
+
+  useEffect(() => registerPendingDraftFlusherV1(handleSave), [handleSave])
+  useEffect(() => {
+    if (!dirty) return
+    const timer = setTimeout(() => { void handleSave().catch(() => undefined) }, 700)
+    return () => clearTimeout(timer)
+  }, [dirty, form, handleSave])
 
   const toggleGenre = (value: string) => {
-    setForm(f => ({
-      ...f,
-      genres: f.genres.includes(value)
-        ? f.genres.filter(g => g !== value)
-        : [...f.genres, value],
-    }))
+    const current = formRef.current
+    changeForm({
+      ...current,
+      genres: current.genres.includes(value)
+        ? current.genres.filter(g => g !== value)
+        : [...current.genres, value],
+    })
   }
 
   const getGenreLabels = (genres: string[]) => {
@@ -79,8 +117,8 @@ export default function ProjectInfoPanel({ project, onUpdate }: ProjectInfoPanel
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold text-text-primary">基本信息</h2>
         <button
-          onClick={handleSave}
-          disabled={saving}
+          onClick={() => { void handleSave().catch(() => undefined) }}
+          disabled={saving || !activeWork || activeWork.id !== project.activeWorkId}
           className="flex items-center gap-2 px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover disabled:opacity-50 transition-colors text-sm font-medium"
         >
           <Save className="w-4 h-4" />
@@ -88,13 +126,18 @@ export default function ProjectInfoPanel({ project, onUpdate }: ProjectInfoPanel
         </button>
       </div>
 
-      <div className="space-y-5">
+      <p role={error ? 'alert' : 'status'} className={`mb-4 text-xs ${error ? 'text-error' : 'text-text-muted'}`}>
+        {error ? `未保存：${error}。内容仍保留，请点击保存重试。` : saving ? '正在保存…' : dirty ? '有修改，稍后自动保存；切换步骤时会先保存。' : '修改后自动保存'}
+      </p>
+
+      <fieldset disabled={!activeWork || activeWork.id !== project.activeWorkId} className="space-y-5">
         <div>
           <label className="block text-sm text-text-secondary mb-1.5">作品名称</label>
           <input
+            aria-label="作品名称"
             type="text"
             value={form.title}
-            onChange={(e) => setForm({ ...form, title: e.target.value })}
+            onChange={(e) => changeForm({ ...formRef.current, title: e.target.value })}
             className="w-full px-3 py-2 bg-bg-base border border-border rounded-lg text-text-primary focus:outline-none focus:border-accent transition-colors"
           />
         </div>
@@ -161,8 +204,9 @@ export default function ProjectInfoPanel({ project, onUpdate }: ProjectInfoPanel
         <div>
           <label className="block text-sm text-text-secondary mb-1.5">简介</label>
           <CTextarea
+            aria-label="作品简介"
             value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            onChange={(e) => changeForm({ ...formRef.current, description: e.target.value })}
             rows={4}
             className="w-full px-3 py-2 bg-bg-base border border-border rounded-lg text-text-primary focus:outline-none focus:border-accent transition-colors resize-none"
           />
@@ -173,12 +217,13 @@ export default function ProjectInfoPanel({ project, onUpdate }: ProjectInfoPanel
             目标字数：{(form.targetWordCount / 10000).toFixed(0)} 万字
           </label>
           <input
+            aria-label="目标字数"
             type="range"
             min={100000}
             max={5000000}
             step={100000}
             value={form.targetWordCount}
-            onChange={(e) => setForm({ ...form, targetWordCount: Number(e.target.value) })}
+            onChange={(e) => changeForm({ ...formRef.current, targetWordCount: Number(e.target.value) })}
             className="w-full accent-accent"
           />
         </div>
@@ -195,6 +240,8 @@ export default function ProjectInfoPanel({ project, onUpdate }: ProjectInfoPanel
               </p>
             </div>
             <button
+              aria-label="多世界模式"
+              aria-pressed={project.enableMultiWorld === true}
               onClick={async () => {
                 if (!project.id) return
                 const next = !project.enableMultiWorld
@@ -225,7 +272,7 @@ export default function ProjectInfoPanel({ project, onUpdate }: ProjectInfoPanel
             更新于 {new Date(project.updatedAt).toLocaleString('zh-CN')}
           </p>
         </div>
-      </div>
+      </fieldset>
     </div>
   )
 }

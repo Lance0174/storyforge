@@ -15,6 +15,7 @@ import HarnessEvidencePanel from '../agent/HarnessEvidencePanel'
 import { useAIConfigStore } from '../../stores/ai-config'
 import { getModelPreset } from '../../lib/ai/context-budget'
 import WorldviewFieldCandidateReview from './WorldviewFieldCandidateReview'
+import CopilotGenerationStatus from '../agent/CopilotGenerationStatus'
 
 export default function WorldviewAgentControls({
   field,
@@ -165,6 +166,8 @@ export default function WorldviewAgentControls({
         </p>
       )}
 
+      <CopilotGenerationStatus busy={copilot.busy && !copilot.pendingCandidates.length} onStop={copilot.stop} />
+
       {hasOtherPendingCandidates && (
         <p className="rounded border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-text-secondary">
           主 Agent 还有其他待确认候选，请先在右侧副驾中处理。
@@ -195,7 +198,7 @@ export default function WorldviewAgentControls({
             </div>
             <span className="text-[11px] text-text-muted">
               {candidate.payload.contextEvidence
-                ? `约 ${candidate.payload.contextEvidence.estimatedInputTokens.toLocaleString()} tokens`
+                ? `参考资料约 ${candidate.payload.contextEvidence.estimatedInputTokens.toLocaleString()} tokens（非实际用量）`
                 : `${candidate.payload.contextSources.length} 个输入来源`}
             </span>
           </div>

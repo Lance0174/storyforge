@@ -141,3 +141,10 @@
   .longform-app .worldview-origin-nav { display: flex; gap: 4px; width: 100%; max-width: none; overflow-x: auto; }
   .longform-app .worldview-origin-nav button { width: auto; flex-shrink: 0; white-space: nowrap; padding: 8px; }
 }
+
+/* Keep the manuscript readable while preserving the chapter picker on phones. */
+@media (max-width: 767px) {
+  .sf-step-panel { flex-direction: column; }
+  .sf-step-panel > .sf-step-sidebar { width: 100% !important; max-height: 11rem; border-right: 0; border-bottom: 1px solid var(--border); }
+  .sf-step-panel > .sf-step-divider { display: none; }
+}

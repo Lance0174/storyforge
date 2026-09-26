@@ -130,6 +130,7 @@ export function useAIStream(sessionKey?: string): UseAIStreamReturn {
       sharedAbortControllers.get(sessionKey)?.abort()
       patchShared({ output: '', error: null, tokenUsage: null, isStreaming: true })
     } else {
+      abortRef.current?.abort()
       setOutput('')
       setError(null)
       setTokenUsage(null)
@@ -162,6 +163,23 @@ export function useAIStream(sessionKey?: string): UseAIStreamReturn {
 
     let accumulated = ''
     const streamResult: StreamResult = {}
+    // A provider can deliver hundreds of deltas in one network read. Publishing
+    // every delta to Zustand synchronously can exhaust React's nested-update
+    // limit and cut off the model output. Coalesce only the view; retain every
+    // character in the result returned to the durable generation controller.
+    let publishTimer: ReturnType<typeof setTimeout> | null = null
+    const ownsRequest = () => sessionKey
+      ? sharedAbortControllers.get(sessionKey) === controller
+      : abortRef.current === controller
+    const publishOutput = () => {
+      publishTimer = null
+      if (controller.signal.aborted) return
+      if (sessionKey) {
+        if (sharedAbortControllers.get(sessionKey) === controller) patchShared({ output: accumulated })
+      } else if (abortRef.current === controller) {
+        setOutput(accumulated)
+      }
+    }
 
     try {
       const stream = streamRegisteredAIEntryV1(messages, config, meta, controller.signal, streamResult)
@@ -170,20 +188,20 @@ export function useAIStream(sessionKey?: string): UseAIStreamReturn {
         accumulated += chunk
         if (sessionKey) {
           if (sharedAbortControllers.get(sessionKey) !== controller) break
-          patchShared({ output: accumulated })
-        } else {
-          setOutput(accumulated)
         }
+        if (publishTimer == null) publishTimer = setTimeout(publishOutput, 32)
       }
     } catch (err: unknown) {
       if ((err as Error).name === 'AbortError') {
         // 用户主动停止，不算错误
-      } else {
+      } else if (!controller.signal.aborted && ownsRequest()) {
         const errMsg = err instanceof Error ? err.message : '未知错误'
         if (sessionKey) patchShared({ error: errMsg })
         else setError(errMsg)
       }
     } finally {
+      if (publishTimer != null) clearTimeout(publishTimer)
+      publishOutput()
       if (sessionKey) {
         // 同一会话可能已被重试；旧请求不得覆盖新请求状态。
         if (sharedAbortControllers.get(sessionKey) === controller) {
@@ -193,7 +211,7 @@ export function useAIStream(sessionKey?: string): UseAIStreamReturn {
             ...(streamResult.usage ? { tokenUsage: streamResult.usage } : {}),
           })
         }
-      } else {
+      } else if (ownsRequest()) {
         setIsStreaming(false)
         abortRef.current = null
         // 流结束后写入 token 用量（若 provider 返回了 usage）

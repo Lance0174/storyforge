@@ -12,11 +12,12 @@ const root = process.cwd()
 const read = (file: string) => fs.readFileSync(path.join(root, file), 'utf8')
 
 describe('R-E-group-ui-and-divine · E 组收尾', () => {
-  it('E-2: 自然、人文与故事设计二级导航使用内容自适应宽度', () => {
+  it('E-2: 自然与人文二级导航使用内容自适应宽度', () => {
+    // Story fields now wrap above the editor on phones; real viewport coverage
+    // lives in longform-step-quality.spec.ts instead of a fixed class string.
     const files = [
       'src/components/worldview/WorldviewNaturalPanel.tsx',
       'src/components/worldview/WorldviewHumanityPanel.tsx',
-      'src/components/worldview/StoryCorePanel.tsx',
     ]
     for (const file of files) {
       const source = read(file)

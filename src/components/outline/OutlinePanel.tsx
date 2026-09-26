@@ -591,6 +591,7 @@ export default function OutlinePanel({ project, onOpenChapter, initialNodeId }: 
   return (
     <div ref={dragScrollRoot} className="h-full min-h-0" data-testid="outline-drag-scroll">
     <PanelLayout
+      mobileStack
       sidebar={sidebarContent}
       sidebarTitle="📖 大纲"
       defaultWidth={220}
@@ -672,8 +673,8 @@ export default function OutlinePanel({ project, onOpenChapter, initialNodeId }: 
           onAccept={handlePreviewAccept}
           onRetry={() => { void generation.retry() }}
           onDismiss={() => { void generation.dismissCandidate() }}
-          onConfirmVolumes={() => { void handleConfirmVolumes() }}
-          onConfirmChapters={() => { void handleConfirmChapters() }}
+          onConfirmVolumes={handleConfirmVolumes}
+          onConfirmChapters={handleConfirmChapters}
           onCancelPreview={clearGenerationPreview}
           canAdopt={generation.canAdopt}
           adoptionRecoveryRequired={generation.adoptionRecoveryRequired}
