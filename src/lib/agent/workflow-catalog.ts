@@ -1,4 +1,5 @@
 import type { AgentRunWorkflowKind } from '../types/agent-run'
+import { affirmativeAuthorActionsV1 } from './author-intent'
 import {
   getAgentSkillV1,
   resolveAgentSkillV1,
@@ -140,9 +141,10 @@ export function isMasterFanOutEnabledV1(): boolean {
 }
 
 export function classifyRequestedDomainIdsV1(request: string): Set<DomainAgentId> {
+  request = affirmativeAuthorActionsV1(request)
   const hasWorldGame = /(?:生成|创建|制作|演化|改编|开发|做成).{0,24}(?:文字游戏|分支互动叙事|分支叙事|文字冒险|AVG|视觉小说)|(?:文字游戏|分支互动叙事|分支叙事|文字冒险|AVG|视觉小说).{0,24}(?:生成|创建|制作|演化|改编|开发|做成)/i.test(request)
   const hasInspiration = /灵感|反推|碎片|脑洞/.test(request)
-  const hasProse = /正文|续写|接着写|继续写|写(?:作|出|完)?第\s*[零〇一二两三四五六七八九十\d]+\s*章/.test(request)
+  const hasProse = /正文|续写|接着写|继续写|写(?:作|出|完)?第\s*[零〇一二两三四五六七八九十百千\d]+\s*章|写.{0,12}(?:场景|片段|开头|一段|结尾)/.test(request)
   const outlineMention = /细纲|场景拆分|大纲|卷纲|章纲|章节规划|剧情结构|情节结构|故事线|主线|支线|复线/.test(request)
   const outlineAction = (
     /(?:生成|创建|新增|规划|设计|展开|补充|完善|修改|重做).{0,12}(?:细纲|场景拆分|大纲|卷纲|章纲|章节规划|剧情结构|情节结构|故事线|主线|支线|复线)/.test(request)
@@ -162,15 +164,12 @@ export function classifyRequestedDomainIdsV1(request: string): Set<DomainAgentId
         ? outlineAction
         : outlineMention
   const worldMention = creativeRulesMention || /世界|设定|起源|文明|力量|体系|时代|地理|故事核心/.test(request)
-  const worldObject = '(?:世界观|世界|背景设定|世界起源|文明设定|力量体系|时代背景|地理设定|故事核心)'
-  const worldAction = (
-    new RegExp(`(?:创建|生成|设计|新增|建立|补充|完善|修改|重做).{0,12}${worldObject}`).test(request)
-    || new RegExp(`${worldObject}.{0,12}(?:创建|生成|设计|新增|建立|补充|完善|修改|重做)`).test(request)
-  )
+  const worldObject = '(?:世界观|世界设定|世界起源|世界|背景设定|文明设定|力量体系|时代背景|地理设定|故事核心|创作规则)'
   const characterMention = /角色|人物|主角|配角|反派|npc/i.test(request)
+  const clauses = request.split(/[，。；！？\n,;!?]|(?:并且|同时|然后|以及|并|再)(?=创建|生成|设计|新增|塑造|补充|完善|修改|调整|更新|重做)/)
   // A character mentioned as context for a world rule is not a character task.
   // Keep independent actions in separate clauses, including explicit mixed requests.
-  const characterAction = request.split(/[，。；！？\n,;!?]|(?:并且|同时|然后|以及|并|再)(?=创建|生成|设计|新增|塑造|补充|完善|修改|调整|更新|重做)/).some(clause => {
+  const characterActionClauses = new Set(clauses.filter(clause => {
     const action = /(?:创建|生成|设计|新增|塑造|补充|完善|修改|调整|更新|重做)(.{0,12}?)(?:角色|人物|主角|配角|反派|npc)/i.exec(clause)
     const contextualTarget = /世界|设定|力量|体系|规则|机制|大纲|正文/
     const coordinatedObject = action && /(?:世界|世界观|世界设定)(?:和|与|及|、)(?:一个|一位)?$/.test(action[1])
@@ -182,10 +181,23 @@ export function classifyRequestedDomainIdsV1(request: string): Set<DomainAgentId
     // Subject-first requests: “主角的外貌需要修改”. Do not cross a world target.
     const reverse = /(?:角色|人物|主角|配角|反派|npc)(.{0,12}?)(?:创建|生成|设计|新增|塑造|补充|完善|修改|调整|更新|重做)/i.exec(clause)
     return !!reverse && !contextualTarget.test(reverse[1])
+  }))
+  const characterAction = characterActionClauses.size > 0
+  const worldAction = clauses.some(clause => {
+    const characterClause = characterActionClauses.has(clause)
+    const forward = new RegExp(`(?:创建|生成|设计|新增|建立|补充|完善|修改|重做).{0,12}${worldObject}`).exec(clause)
+    // “设计这个世界中的主角” targets a character, not the existing world.
+    if (forward && !(characterClause && /^(?:中|里|内)(?:的)?/.test(clause.slice(forward.index + forward[0].length)))) return true
+    const reverse = new RegExp(`${worldObject}.{0,12}(?:创建|生成|设计|新增|建立|补充|完善|修改|重做)`).exec(clause)
+    if (!reverse) return false
+    // “按世界设定修改现有角色” uses the world as context. Keep a separate
+    // clause such as “世界设定需要修改” as an explicit world action.
+    return !(characterClause && /^(?:现有|已有|一位|一个|一名|新的|新|这个|这位|的|\s){0,3}(?:角色|人物|主角|配角|反派|npc)/i
+      .test(clause.slice(reverse.index + reverse[0].length)))
   })
   if (/(?:创作|完成|写完|制作).{0,10}(?:整部|全书|一部|这部).{0,8}(?:长篇|小说|作品)|(?:从零|从头).{0,12}(?:写到完结|创作长篇)/.test(request)) return new Set<DomainAgentId>(['world-origin', 'character', 'outline', 'prose'])
   const downstreamWriting = hasOutline || hasProse
-  const hasWorld = hasWorldGame ? false : downstreamWriting ? worldAction : worldMention
+  const hasWorld = hasWorldGame ? false : downstreamWriting || characterAction ? worldAction : worldMention
   const hasCharacter = downstreamWriting || hasWorld ? characterAction : characterMention
   return new Set<DomainAgentId>([
     ...(hasWorld ? ['world-origin' as const] : []),
@@ -197,6 +209,7 @@ export function classifyRequestedDomainIdsV1(request: string): Set<DomainAgentId
 }
 
 export function selectAgentSkillIdV1(agentId: DomainAgentId, request: string): AgentSkillId {
+  request = affirmativeAuthorActionsV1(request)
   if (agentId === 'outline') {
     if (/细纲|场景拆分|拆.{0,8}场景/.test(request)) return 'outline.details'
     if (/(?:映射|分析|更新).{0,10}(?:本章|章节).{0,10}(?:故事线|进度|交汇)|(?:动态进度|故事线进度)/.test(request)) {

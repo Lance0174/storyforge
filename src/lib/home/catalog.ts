@@ -1,7 +1,7 @@
 import { db } from '../db/schema'
 import type { Project, Work, World, AgentRunRecord } from '../types'
 import { effectiveWorkKind, effectiveNovelProfile } from '../workspace/work-kind'
-import { switchActiveWork } from '../workspace/works'
+import { readWorkLibraryProjectionV1, switchActiveWork } from '../workspace/works'
 import { isShareableWorld } from '../world-engine/world-identity'
 import { worldModulePath } from '../../components/world-engine/navigation'
 import { flushPendingEditsV1 } from '../authoring/pending-edit-coordinator'
@@ -33,6 +33,7 @@ export async function openHomeWork(row: HomeWork): Promise<void> {
 export async function readHomeCatalog(){
  const [projects,works,worlds]=await Promise.all([db.projects.toArray(),db.works.toArray(),db.worlds.toArray()])
  const rows:HomeWork[]=works.flatMap(work=>{const project=projects.find(p=>p.id===work.projectId),world=worlds.find(w=>w.id===work.worldId&&w.projectId===work.projectId);return project&&world?[{work,project,world}]:[]}).sort((a,b)=>b.work.updatedAt-a.work.updatedAt)
+ for (const row of rows) row.work = await readWorkLibraryProjectionV1(row.work)
  return {projects,rows,works:rows.filter(r=>r.project.workspacePurpose==='independent-work'),worlds:worlds.filter(w=>isShareableWorld(w)&&projects.some(p=>p.id===w.projectId&&p.activeWorldId===w.id)).sort((a,b)=>b.updatedAt-a.updatedAt)}
 }
 export const RUN_LABELS:Record<string,string>={planned:'待开始',running:'进行中',awaiting_confirmation:'待确认',verifying:'校验中',completed:'已完成',paused:'已暂停',recovering:'恢复中',failed:'失败',cancelled:'已取消',recovery_required:'需要恢复'}

@@ -5,7 +5,8 @@ import {createWorldWork,switchActiveWork,updateWorkCover} from '../../src/lib/wo
 import {readHomeCatalog,readHomeResume,rememberHomeWork,runWorkPath,validWorkPath,workPath} from '../../src/lib/home/catalog'
 import {readHomeData} from '../../src/components/home/useHomeData'
 import {searchHome} from '../../src/lib/home/search'
-import type {AgentRunRecord} from '../../src/lib/types'
+import type {AgentRunRecord, Chapter} from '../../src/lib/types'
+import {stampNewRecord} from '../../src/lib/workspace/scope'
 beforeEach(async()=>{await db.delete();await db.open();localStorage.clear()});afterEach(()=>db.close())
 const create=(name:string,purpose:'world-engine'|'independent-work'='independent-work')=>createWorkspace({name,description:'沿海城镇',genres:[],status:'drafting',targetWordCount:10000},{purpose,kind:'novel',novelProfile:'long'})
 it('separates real works from shareable worlds and removes invalid roots',async()=>{const a=await create('故事'),b=await create('世界','world-engine');let data=await readHomeCatalog();expect(data.works.map(r=>r.work.title)).toEqual(['故事']);expect(data.worlds.map(w=>w.name)).toEqual(['世界']);await db.worlds.delete(a.world.id!);data=await readHomeCatalog();expect(data.works).toHaveLength(0);expect(data.rows[0].work.id).toBe(b.work.id)})
@@ -19,6 +20,24 @@ it('aggregates Work-owned tasks without requiring worldId; rejects wrong owners 
  const base={projectId:a.project.id!,workId:a.work.id!,status:'paused',contractJson:'{}',contractHash:'a'.repeat(64),contractVersion:1,generation:0,lastSequence:0,projectionJson:'{}',projectionHash:'b'.repeat(64),createdAt:1,updatedAt:1} as AgentRunRecord
  await db.agentRuns.bulkAdd([base,{...base,projectId:b.project.id!},{...base,workId:null,productRuntimeSessionId:42}])
  const data=await readHomeData();expect(data.runs).toHaveLength(1);expect(data.runs[0].workId).toBe(a.work.id)
+})
+
+it('reads longform library word counts from saved canonical prose, scoped to each Work without rewriting metadata', async () => {
+ const a = await create('采纳后的字数'), b = await create('另一部作品')
+ const body = {outlineNodeId: 1, title: '第一章', content: '<p>夜班邮差归来</p>', wordCount: 9999, status: 'draft' as const, order: 0, notes: '', createdAt: 1, updatedAt: 1}
+ const chapterId = await db.chapters.add(stampNewRecord(a.scope, 'chapters', body, {owner: 'work'}) as Chapter)
+ await db.chapters.add(stampNewRecord(a.scope, 'chapters', {...body, content: '', wordCount: 50000}, {owner: 'work'}) as Chapter)
+ await db.chapters.add(stampNewRecord(b.scope, 'chapters', {...body, content: '<p>另一故事</p>'}, {owner: 'work'}) as Chapter)
+ const before = await db.works.get(a.work.id!)
+ let rows = (await readHomeCatalog()).works
+ expect(rows.find(row => row.work.id === a.work.id)?.work.currentWordCount).toBe(6)
+ expect(rows.find(row => row.work.id === b.work.id)?.work.currentWordCount).toBe(4)
+ expect(await db.works.get(a.work.id!)).toEqual(before)
+ await db.chapters.update(chapterId, {content: '<p>来信</p>'})
+ rows = (await readHomeCatalog()).works
+ expect(rows.find(row => row.work.id === a.work.id)?.work.currentWordCount).toBe(2)
+ await db.chapters.delete(chapterId)
+ expect((await readHomeCatalog()).works.find(row => row.work.id === a.work.id)?.work.currentWordCount).toBe(0)
 })
 
 

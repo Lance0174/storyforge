@@ -126,6 +126,18 @@ export async function readCanonicalWorkManuscriptWordCount(scope: WorkspaceScope
   return canonicalManuscriptWordCount(chapters)
 }
 
+/** Library projection only: longform prose has multiple governed editing paths,
+ * so a cached Work count must not hide saved text. No read-side database writes. */
+export async function readWorkLibraryProjectionV1(work: Work): Promise<Work> {
+  if (effectiveWorkKind(work) !== 'novel' || effectiveNovelProfile(work) !== 'long') return work
+  return {
+    ...work,
+    currentWordCount: await readCanonicalWorkManuscriptWordCount({
+      projectId: work.projectId, worldId: work.worldId, workId: work.id!,
+    }),
+  }
+}
+
 export async function switchNovelProfile(input: {
   projectId: number
   workId: number
