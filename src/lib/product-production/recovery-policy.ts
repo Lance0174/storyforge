@@ -25,6 +25,12 @@ const TEXT_ADVENTURE_AUTHOR_REPAIR_TASKS = new Map<string, string>([
   ['content.product-module', 'text-adventure.production-systems.v1'],
   ['content.adventure-side-quests', 'text-adventure.production-side-quests.v1'],
   ['content.adventure-ambient-events', 'text-adventure.production-ambient-events.v1'],
+  ['content.scene-script.act-1.part-1', 'text-adventure.scene-script.v1'],
+  ['content.scene-script.act-1.part-2', 'text-adventure.scene-script.v1'],
+  ['content.scene-script.act-2.part-1', 'text-adventure.scene-script.v1'],
+  ['content.scene-script.act-2.part-2', 'text-adventure.scene-script.v1'],
+  ['content.scene-script.act-3.part-1', 'text-adventure.scene-script.v1'],
+  ['content.scene-script.act-3.part-2', 'text-adventure.scene-script.v1'],
   ['media.requirements', 'text-adventure.visual-direction.v1'],
 ])
 
