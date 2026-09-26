@@ -1236,7 +1236,7 @@ export default function ProductProductionStudio(props: {
   }, details?.production.status === 'paused' ? '恢复制作' : '暂停制作')
 
   const resumeWithContentRevision = () => run(async () => {
-    if (!details || !contentRevision) throw new Error('请先载入待修订的故事、角色或地点架构。')
+    if (!details || !contentRevision) throw new Error('请先载入待修订的内容计划。')
     await setProductProductionPausedV1({
       scope: props.scope, production: details.production, build: details.build,
       contentRevision,
@@ -2140,15 +2140,15 @@ export default function ProductProductionStudio(props: {
         {details?.production.productType === 'text-adventure' && details.production.status === 'paused'
           && details.build?.resumeState === 'building' && details.build.releasedProductReleaseId == null
           && <section className="mt-5 rounded border border-border bg-bg-elevated p-5" data-testid="text-adventure-content-revision">
-            <h2 className="text-sm font-semibold">修订故事、角色与地点架构</h2>
+            <h2 className="text-sm font-semibold">修订故事与场景计划</h2>
             <p className="mt-2 text-xs text-text-muted">保留原稿，只重新生成依赖本次修改的内容。新稿仍须通过原有规则校验。</p>
-            {!contentRevision && <div className="mt-3 flex gap-2">{(['content.story-bible', 'content.cast-bible', 'content.adventure-architecture'] as const).map(artifactKey =>
+            {!contentRevision && <div className="mt-3 flex gap-2">{(['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes'] as const).map(artifactKey =>
               <button key={artifactKey} disabled={busy || productionRunning || !reviewArtifacts.some(row => row.artifactKey === artifactKey)}
                 onClick={() => {
                   const original = reviewArtifacts.filter(row => row.artifactKey === artifactKey).sort((a, b) => b.version - a.version)[0]
                   if (original) setContentRevision({ artifactKey, expectedArtifactVersion: original.version,
                     expectedArtifactHash: original.contentHash, authorDraftJson: JSON.stringify(original.payload, null, 2), note: '' })
-                }} className="rounded border border-border px-3 py-2 text-xs disabled:opacity-40">{{ 'content.story-bible': '载入故事圣经', 'content.cast-bible': '载入角色圣经', 'content.adventure-architecture': '载入地点架构' }[artifactKey]}</button>
+                }} className="rounded border border-border px-3 py-2 text-xs disabled:opacity-40">{{ 'content.story-bible': '载入故事圣经', 'content.cast-bible': '载入角色圣经', 'content.adventure-architecture': '载入地点架构', 'content.narrative-arc-scenes': '载入三幕场景计划' }[artifactKey]}</button>
             )}</div>}
             {contentRevision && <>
               <label className="mt-3 grid gap-2 text-xs">修改说明<textarea aria-label="内容修订说明" value={contentRevision.note} maxLength={2000}

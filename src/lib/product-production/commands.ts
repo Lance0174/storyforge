@@ -1498,10 +1498,11 @@ async function applyCommand(input: {
         'content.story-bible': 'text-adventure.story-bible.v1',
         'content.cast-bible': 'text-adventure.cast-bible.v1',
         'content.adventure-architecture': 'text-adventure.production-architecture.v1',
+        'content.narrative-arc-scenes': 'text-adventure.narrative-design.v1',
       }[contentRevision.artifactKey])
         || task.executionMode !== 'model' || task.failurePolicy !== 'pause'
         || task.outputArtifactKeys.length !== 1 || task.outputArtifactKeys[0] !== contentRevision.artifactKey) {
-        reject('invalid-state-transition', '内容修订未命中登记的故事、角色或空间架构岗位')
+        reject('invalid-state-transition', '内容修订未命中登记的故事、角色、空间架构或场景计划岗位')
       }
       const baseline = (await db.productBuildArtifacts.where('buildId').equals(build.id!).toArray())
         .filter(row => row.artifactKey === contentRevision.artifactKey && row.controlEpoch === plan.controlEpoch

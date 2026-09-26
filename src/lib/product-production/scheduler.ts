@@ -3389,7 +3389,7 @@ export async function recoveryInvalidatedTaskKeys(input: {
     && !Array.isArray(recovery.resolution)
     ? recovery.resolution as Record<string, unknown> : null
   if (recovery.code === 'author-revised-content' && typeof recovery.blockerKey === 'string'
-    && ['content.story-bible', 'content.cast-bible', 'content.adventure-architecture'].includes(recovery.blockerKey)
+    && ['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes'].includes(recovery.blockerKey)
     && recoveryResolution?.action === 'author-edit') {
     return expandProductProductionInvalidatedTaskClosureV1(input.plan, [recovery.blockerKey])
   }

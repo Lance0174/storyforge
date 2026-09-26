@@ -17,6 +17,7 @@ const TEXT_ADVENTURE_AUTHOR_REPAIR_TASKS = new Map<string, string>([
   ['content.story-bible', 'text-adventure.story-bible.v1'],
   ['content.cast-bible', 'text-adventure.cast-bible.v1'],
   ['content.adventure-architecture', 'text-adventure.production-architecture.v1'],
+  ['content.narrative-arc-scenes', 'text-adventure.narrative-design.v1'],
   ['content.design', 'text-adventure.creative-direction.v1'],
   ['content.product-module', 'text-adventure.production-systems.v1'],
   ['content.adventure-side-quests', 'text-adventure.production-side-quests.v1'],

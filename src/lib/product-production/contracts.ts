@@ -644,7 +644,7 @@ export function parseProductProductionCommandV1(value: unknown): ProductProducti
       const authorDraftJson = text(revision.authorDraftJson, 'resume.contentRevision.authorDraftJson', 120_000)
       try { record(JSON.parse(authorDraftJson), 'resume.contentRevision.authorDraftJson') } catch { fail('resume.contentRevision.authorDraftJson 必须是 JSON 对象') }
       return {
-        artifactKey: enumValue(revision.artifactKey, ['content.story-bible', 'content.cast-bible', 'content.adventure-architecture'], 'resume.contentRevision.artifactKey'),
+        artifactKey: enumValue(revision.artifactKey, ['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes'], 'resume.contentRevision.artifactKey'),
         expectedArtifactVersion: positiveId(revision.expectedArtifactVersion, 'resume.contentRevision.expectedArtifactVersion'),
         expectedArtifactHash,
         note: text(revision.note, 'resume.contentRevision.note', 2000),
