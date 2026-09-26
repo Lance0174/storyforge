@@ -1695,7 +1695,9 @@ export default function ProductProductionStudio(props: {
   const canRepairVisualContract = !!details && canRepairTextAdventureVisualContractV1(details)
   const canRepairRuntimeCopy = !!details && canRepairTextAdventureRuntimeCopyV1(details)
   const canRetryBlocker = details?.production.status === 'producing'
-    && canRetryProductProductionBlockerV1(details) && !canRepairVisualContract
+    && canRetryProductProductionBlockerV1(details)
+    && (!canRepairVisualContract || !!details.build
+      && readProductProductionRecoveryTaskKeyV1(details.build.failureJson) === 'media.requirements')
   const canUpgradeExecutionPlan = !!details && canUpgradeTextAdventureProductionPlanV1(details)
   const sourceDecisionBlocker = !!details && isTextAdventureSourceDecisionBlockerV1(details)
   const sourceDecision = useMemo(

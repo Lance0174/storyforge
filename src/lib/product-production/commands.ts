@@ -545,6 +545,7 @@ export function canReviseTextAdventureVisualContractFromRecoveryV1(
   try {
     const failure = JSON.parse(build.failureJson) as {
       taskKey?: unknown
+      code?: unknown
       detail?: unknown
       blockerKey?: unknown
       resolution?: { action?: unknown }
@@ -557,6 +558,10 @@ export function canReviseTextAdventureVisualContractFromRecoveryV1(
     if (build.status !== 'recovery-required' && !rejectedAnchorBuild) return false
     const taskKey = rejectedAnchorBuild ? failure.previousFailure?.taskKey : failure.taskKey
     if (typeof taskKey !== 'string') return false
+    // A rejected input packet has not produced a visual contract. Keep the
+    // ordinary same-Build retry visible after its registered reader is fixed;
+    // it must not force a new Brief or discard already accepted narrative.
+    if (taskKey === 'media.requirements' && failure.code === 'task-context-budget-exceeded') return false
     const directlyVisual = taskKey === 'media.requirements'
       || taskKey === 'media.audit'
       || taskKey === 'media.visual-quality-review'

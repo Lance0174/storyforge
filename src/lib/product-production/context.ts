@@ -741,6 +741,61 @@ export async function readTextAdventureDialogueInputsV1(input: AssembleContextIn
  * image bytes are attached by the governed vision capability after this
  * registered projection and the Build Artifact hashes have been frozen.
  */
+/** Art direction consumes the accepted prose once, not its draft/script/review
+ * copies or runtime settlements. Beat identities and complete text stay exact
+ * so every illustration can still bind to the deterministic narrative owner. */
+export async function readTextAdventureVisualDirectionInputsV1(input: AssembleContextInput): Promise<string> {
+  if (input.productProductionTaskKey !== 'media.requirements') {
+    throw new Error('[product-production-context] 美术定向投影需要 media.requirements taskKey')
+  }
+  const { production } = await productionAndBuild(input)
+  if (production.productType !== 'text-adventure') {
+    throw new Error('[product-production-context] 美术定向投影只适用于文字冒险')
+  }
+  const { build, rows, payloadByKey } = await requiredContextArtifactsV1(input, {
+    label: '文字冒险美术定向投影',
+    requiredKeys: [
+      'content.story-bible', 'content.cast-bible', 'content.adventure-architecture',
+      'content.narrative', 'quality.adventure-review',
+    ],
+  })
+  const quality = payloadByKey.get('quality.adventure-review')!
+  if (quality.passed !== true) throw new Error('[product-production-context] 美术定向需要已通过的叙事审查')
+  const cast = payloadByKey.get('content.cast-bible')!
+  const narrative = payloadByKey.get('content.narrative')!
+  const packet = {
+    schema: 'storyforge.text-adventure-visual-direction-inputs', version: 1,
+    buildNumber: build.buildNumber, taskKey: input.productProductionTaskKey,
+    sources: rows.map(row => ({
+      artifactKey: row.artifactKey, version: row.version,
+      contentHash: row.contentHash, producerReceiptHash: row.producerReceiptHash,
+    })),
+    story: payloadByKey.get('content.story-bible'),
+    cast: contextRows(cast.characters).map(character => ({
+      key: character.key, sourceResourceKey: character.sourceResourceKey,
+      name: character.name, role: character.role,
+      publicIdentity: character.publicIdentity, visualAnchor: character.visualAnchor,
+    })),
+    architecture: payloadByKey.get('content.adventure-architecture'),
+    narrative: {
+      moduleTitle: narrative.moduleTitle, entryNodeKey: narrative.entryNodeKey,
+      nodes: narrative.nodes, beats: narrative.beats,
+    },
+    authorityBoundary: {
+      narrativeText: 'Complete accepted beat text; do not invent events or character presence.',
+      omitted: ['duplicate draft scripts', 'dialogue review copies', 'runtime quest settlement variants', 'choice execution effects'],
+      modelMay: ['select existing beat keys', 'describe composition and visual treatment'],
+      modelMayNot: ['rewrite prose', 'change frozen character identity', 'change image count or editorial roles', 'approve images'],
+    },
+  }
+  const serialized = JSON.stringify(packet)
+  const estimatedTokens = estimateTokens(serialized)
+  if (estimatedTokens > 51_500) {
+    throw new ProductProductionContextBudgetErrorV1(`[product-production-context] 美术定向投影超过登记预算:${estimatedTokens}/51500；完整正文未截断，未调用模型`)
+  }
+  return serialized
+}
+
 export async function readTextAdventureVisualQualityInputsV1(input: AssembleContextInput): Promise<string> {
   if (!/^media\.visual-quality-review\.batch-[1-9]\d*$/.test(input.productProductionTaskKey ?? '')) {
     throw new Error('[product-production-context] 视觉审查投影缺少有界批次 taskKey')

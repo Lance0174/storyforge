@@ -2899,7 +2899,7 @@ function textAdventurePromptVisuallyDepictsCharacterV1(
   ].some(pattern => pattern.test(prompt))
   if (referenceOnly) return false
   return [
-    new RegExp(`${name}[^。；\\n]{0,36}(?:将|把|站|坐|走|跑|跪|抵达|进入|发现|面对|转身|抬手|伸手|举起|拿|握|持|穿|靠|睁开眼|睁眼|醒来|苏醒|起身|收回手|触碰|触摸|捧|抱|感受|面向|凝视|表情|眼神|脸|面部|身影|侧面|正面|背影|手臂|双手)`),
+    new RegExp(`${name}[^。；\\n]{0,36}(?:将|把|站|坐|走|跑|跪|抵达|进入|发现|面对|转身|抬手|伸手|举起|取出|翻开|递出|递给|写下|指向|拿|握|持|穿|靠|睁开眼|睁眼|醒来|苏醒|起身|收回手|触碰|触摸|捧|抱|感受|面向|凝视|表情|眼神|脸|面部|身影|侧面|正面|背影|手臂|双手)`),
     new RegExp(`${name}在(?:画面|前景|中景|近景|远景|场景|房间|大厅|工坊|钟楼|灯塔|海岸|甲板|道路)`),
     new RegExp(`(?:画面|前景|中景|近景|远景|中心|构图)[^。；\\n]{0,64}${name}`),
     new RegExp(`${name}[^。；\\n]{0,24}(?:与|和|同)[^。；\\n]{0,24}(?:并肩|对峙|交谈|行动|站立)`),
@@ -2927,6 +2927,7 @@ function textAdventureItemTermForSceneV1(
 
 function textAdventureNarrativeBeatForVisualV1(input: {
   sceneTag: string
+  preferredBeatKey?: string
   prompt: string
   characterAnchorRefs: readonly string[]
   narrative: NarrativeArtifactV1
@@ -2935,6 +2936,18 @@ function textAdventureNarrativeBeatForVisualV1(input: {
   const visualBeats = input.narrative.beats.filter(beat => beat.kind === 'narration' || beat.kind === 'action')
   const usable = visualBeats.length > 0 ? visualBeats : input.narrative.beats
   const first = usable[0] ?? null
+  // A valid explicit editorial choice is stronger than a keyword score. The
+  // legacy heuristic remains a fallback for old placeholder requirements,
+  // but must not silently move a curated CG to another scene or ending.
+  const preferred = usable.find(beat => beat.beatKey === input.preferredBeatKey)
+  const editorialAct = /^mainline-turn-act-([123])$/.exec(input.sceneTag)?.[1]
+  if (preferred && editorialAct && nodeKind.get(preferred.nodeKey) !== 'ending'
+    && new RegExp(`(?:^|[.:-])act-${editorialAct}(?:[.:-]|$)`, 'i').test(preferred.beatKey)) return preferred
+  if (preferred && ['ending-consequence', 'alternate-ending-consequence'].includes(input.sceneTag)
+    && nodeKind.get(preferred.nodeKey) === 'ending') return preferred
+  if (preferred && input.sceneTag === 'secondary-region-anchor'
+    && nodeKind.get(preferred.nodeKey) !== 'ending'
+    && /(?:^|[.:-])act-2(?:[.:-]|$)/i.test(preferred.beatKey)) return preferred
   const pick = (beats: FrozenNarrativeBeat[], ratio: number) => (
     beats[Math.min(beats.length - 1, Math.max(0, Math.floor(beats.length * ratio)))] ?? first
   )
@@ -3148,6 +3161,7 @@ export function parseProductMediaRequirementsArtifactV2(
     const sourceBeat = brief.intent.productType === 'text-adventure' && narrative
       ? textAdventureNarrativeBeatForVisualV1({
           sceneTag: key(item.sceneTag, `visual[${index}].sceneTag`),
+          preferredBeatKey: key(item.beatKey, `visual[${index}].beatKey`),
           prompt: rawPrompt,
           characterAnchorRefs: suppliedCharacterRefs,
           narrative,
@@ -5774,7 +5788,8 @@ function textSystem(
     '当清单中已有独立角色立绘时，未携带角色锚点的 background 必须是无人物、无人形倒影、无人物剪影的纯空景；' +
     '它们必须携带示例中的角色锚点与完整 hardConstraints；background/cg 只有画面实际出现该冻结角色时才可携带同一合法合同，否则两个数组都必须为空；ui 的两个数组必须为空。' +
     (brief.intent.productType === 'text-adventure'
-      ? '每个 sceneTag 代表一个不可替代的编辑职责，必须全局唯一；禁止复用封面、地图、同一角色或同一事件来凑图片数量。前三个角色槽位应分别落实清单冻结的角色，不得全部改回主角。prompt 与角色圣经/硬约束冲突时必须重写 prompt，不能让发色、年龄、服饰、伤痕或身份自相矛盾。'
+      ? '登记的 storyforge.text-adventure-visual-direction-inputs 中，story 是故事圣经，cast 是角色外貌权威，architecture 是地点与视觉规则，narrative.beats 是已采纳的完整节拍正文；它们分别对应 content.story-bible、content.cast-bible、content.adventure-architecture 与 content.narrative，sources 绑定原稿版本与 hash。未提供的任务执行脚本和对白审校副本不属于本美术任务输入，不得要求重写或补造它们。'
+        + '每个 sceneTag 代表一个不可替代的编辑职责，必须全局唯一；禁止复用封面、地图、同一角色或同一事件来凑图片数量。前三个角色槽位应分别落实清单冻结的角色，不得全部改回主角。prompt 与角色圣经/硬约束冲突时必须重写 prompt，不能让发色、年龄、服饰、伤痕或身份自相矛盾。'
         + '所有叙事 CG 只能改编 content.narrative 中被 beatKey 引用的已采纳节拍，不得新增正文不存在的人名、遗骸、生死、道具、地点、选择或因果；确定性编译器会丢弃 CG 的模型剧情扩写并以真实节拍原文为事实权威。'
       : '')
 }

@@ -581,9 +581,11 @@ export async function createProductProductionPlanV3(input: {
     // reviewed 200k baseline so hidden reasoning cannot invalidate an otherwise
     // bounded receipt; the Build-lifetime ledger remains the hard ceiling.
     'media.requirements': 0.035,
-    // One tiny real image-input request proves the configured text model can
-    // observe image bytes before any paid Agnes generation is admitted.
-    'media.vision-preflight': 0.002,
+    // The live four-color check returned 427 output tokens including provider
+    // reasoning; its old 400-token reservation rejected an otherwise valid
+    // observation. Reserve 2k at the reviewed baseline, still inside the same
+    // Build-lifetime envelope and with one bounded vision call.
+    'media.vision-preflight': 0.01,
     // Each bounded Visual QA Run reviews one frozen image. A live repair
     // review used 2,782 billable output tokens because the provider included
     // detailed issue evidence and recommendations. Reserve 4,000 at the

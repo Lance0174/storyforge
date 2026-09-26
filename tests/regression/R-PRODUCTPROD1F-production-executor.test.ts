@@ -8,7 +8,7 @@ import { db } from '../../src/lib/db/schema'
 import { getAgentSkillV1, TEXT_ADVENTURE_PRODUCTION_AGENT_IDS } from '../../src/lib/agent/skill-registry'
 import { prepareProductProductionAdoption } from '../../src/lib/product-production/adoption'
 import { executeProductProductionCommand } from '../../src/lib/product-production/commands'
-import { validateProductProductionRecoveryDirectiveV1, readTextAdventureRepairFeedbackV1 } from '../../src/lib/product-production/context'
+import { validateProductProductionRecoveryDirectiveV1, readTextAdventureRepairFeedbackV1, readTextAdventureVisualDirectionInputsV1 } from '../../src/lib/product-production/context'
 import { draftProductProductionBriefV3, suggestProductStartingPoints } from '../../src/lib/product-production/consultation'
 import { parseProductProductionBriefV3 } from '../../src/lib/product-production/contracts'
 import { hashProductProductionValueV2 } from '../../src/lib/product-production/hash'
@@ -4071,6 +4071,32 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     expect(sourceGrounded.visual[9].prompt).not.toContain('三个按钮')
     expect(sourceGrounded.visual[11].prompt).toContain('潮钟继续运转')
     expect(sourceGrounded.visual[11].prompt).not.toContain('感受到了变化')
+    const curatedNarrative = structuredClone(frozenNarrative)
+    curatedNarrative.beats.push(
+      { beatKey: 'beat.act-1.curated', nodeKey: 'node.001', kind: 'narration', speakerKey: null, text: '阿塔从抽屉里取出缺名档案，翻开到某一页。', order: 3 },
+      { beatKey: 'beat.act-3.curated-ending', nodeKey: 'node.003', kind: 'narration', speakerKey: null, text: '桌上的灯照亮合拢的笔记，窗外传来新的钟声。', order: 4 },
+    )
+    const curatedRequirements = structuredClone(modelHallucination)
+    curatedRequirements.visual[3].beatKey = 'beat.act-1.curated'
+    curatedRequirements.visual[4].beatKey = 'beat.act-2.001'
+    curatedRequirements.visual[11].beatKey = 'beat.act-3.curated-ending'
+    const curated = parseProductMediaRequirementsArtifactV2(
+      curatedRequirements, owned.brief, anchors, curatedNarrative as never,
+    )
+    expect(curated.visual[3].beatKey).toBe('beat.act-1.curated')
+    expect(curated.visual[3].prompt).toContain('阿塔从抽屉里取出缺名档案')
+    expect(curated.visual[3].characterAnchorRefs).toEqual(['character.npc.2'])
+    expect(curated.visual[4].beatKey).toBe('beat.act-2.001')
+    expect(curated.visual[11].beatKey).toBe('beat.act-3.curated-ending')
+    expect(curated.visual[11].prompt).toContain('窗外传来新的钟声')
+    // A real but cross-act or non-ending reference cannot override the role.
+    curatedRequirements.visual[3].beatKey = 'beat.act-2.003'
+    curatedRequirements.visual[11].beatKey = 'beat.act-1.curated'
+    const wrongScope = parseProductMediaRequirementsArtifactV2(
+      curatedRequirements, owned.brief, anchors, curatedNarrative as never,
+    )
+    expect(wrongScope.visual[3].beatKey).not.toBe('beat.act-2.003')
+    expect(wrongScope.visual[11].beatKey).not.toBe('beat.act-1.curated')
     const duplicateBeat = structuredClone(modelHallucination)
     duplicateBeat.visual[7].prompt = modelHallucination.visual[3].prompt
     duplicateBeat.visual[7].characterAnchorRefs = ['character.player', 'character.npc.1']
@@ -6500,6 +6526,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     const qualityReviewContexts = new Map<string, string[]>()
     let playtestSystem = ''
     let playtestContext = ''
+    let visualDirectionContext = ''
     let modelCallCount = 0
     const qualityReviewAttempts = new Map<string, number>()
     let ambientEventAttempt = 0
@@ -6559,6 +6586,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
         playtestSystem = request.system
         playtestContext = request.contextText
       }
+      if (taskKey === 'media.requirements') visualDirectionContext = request.contextText
       const output = taskKey === 'content.adventure-quality-review.structure'
         && qualityReviewAttempts.get(taskKey) === 1
         ? {
@@ -7137,6 +7165,71 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     expect(playtestContext).toContain('"deterministicEvidence":["quality.autoplay","quality.report"]')
     expect(playtestContext).not.toContain('storyforge.product-production.artifact-inputs')
     const build = (await db.productBuilds.get(projection.buildId))!
+    expect(visualDirectionContext).toContain('storyforge.text-adventure-visual-direction-inputs')
+    expect(visualDirectionContext).not.toContain('storyforge.product-production.artifact-inputs')
+    const visualPacket = JSON.parse(visualDirectionContext.split('\n\n').find(segment => (
+      segment.includes('storyforge.text-adventure-visual-direction-inputs')
+    ))!)
+    const visualInputRows = await db.productBuildArtifacts.where('buildId').equals(build.id!).toArray()
+    const narrativeRow = visualInputRows.filter(row => row.artifactKey === 'content.narrative')
+      .sort((left, right) => right.version - left.version)[0]
+    const acceptedNarrative = JSON.parse(narrativeRow.payloadJson)
+    // Art receives every final beat verbatim, including the last ending; it
+    // must not silently lose late text to a fixed-length summary.
+    expect(visualPacket.narrative.beats).toEqual(acceptedNarrative.beats)
+    expect(visualPacket.narrative.nodes).toEqual(acceptedNarrative.nodes)
+    expect(visualPacket.narrative.choices).toBeUndefined()
+    expect(visualPacket.sources).toContainEqual(expect.objectContaining({
+      artifactKey: 'content.narrative', version: narrativeRow.version,
+      contentHash: narrativeRow.contentHash, producerReceiptHash: narrativeRow.producerReceiptHash,
+    }))
+    expect(visualPacket.sources.map((source: { artifactKey: string }) => source.artifactKey)).toEqual([
+      'content.story-bible', 'content.cast-bible', 'content.adventure-architecture',
+      'content.narrative', 'quality.adventure-review',
+    ])
+    expect(visualPacket.cast).toEqual(JSON.parse(visualInputRows.find(row => (
+      row.artifactKey === 'content.cast-bible'
+    ))!.payloadJson).characters.map((character: Record<string, unknown>) => ({
+      key: character.key, sourceResourceKey: character.sourceResourceKey,
+      name: character.name, role: character.role,
+      publicIdentity: character.publicIdentity, visualAnchor: character.visualAnchor,
+    })))
+    const visualContextInput = {
+      projectId: owned.scope.projectId, scope: owned.scope,
+      productProductionId: owned.productionId, productBuildId: build.id!,
+      productProductionTaskKey: 'media.requirements',
+      productArtifactKeys: visualPacket.sources.map((source: { artifactKey: string }) => source.artifactKey),
+    }
+    await expect(readTextAdventureVisualDirectionInputsV1({
+      ...visualContextInput, productProductionTaskKey: 'content.narrative',
+    })).rejects.toThrow('media.requirements taskKey')
+    await expect(readTextAdventureVisualDirectionInputsV1({
+      ...visualContextInput, productArtifactKeys: ['content.narrative'],
+    })).rejects.toThrow('Artifact 选择不完整')
+    await expect(readTextAdventureVisualDirectionInputsV1({
+      ...visualContextInput, scope: { ...owned.scope, workId: owned.scope.workId! + 999 },
+    })).rejects.toThrow('不存在或跨 Work')
+    const qualityRow = visualInputRows.find(row => row.artifactKey === 'quality.adventure-review')!
+    try {
+      await db.productBuildArtifacts.update(qualityRow.id!, {
+        payloadJson: JSON.stringify({ ...JSON.parse(qualityRow.payloadJson), passed: false }),
+      })
+      await expect(readTextAdventureVisualDirectionInputsV1(visualContextInput))
+        .rejects.toThrow('需要已通过的叙事审查')
+    } finally {
+      await db.productBuildArtifacts.update(qualityRow.id!, { payloadJson: qualityRow.payloadJson })
+    }
+    try {
+      await db.productBuildArtifacts.update(narrativeRow.id!, {
+        payloadJson: JSON.stringify({ ...acceptedNarrative, beats: [{
+          ...acceptedNarrative.beats[0], text: '完整末尾不能被截断'.repeat(30_000),
+        }] }),
+      })
+      await expect(readTextAdventureVisualDirectionInputsV1(visualContextInput))
+        .rejects.toThrow('完整正文未截断，未调用模型')
+    } finally {
+      await db.productBuildArtifacts.update(narrativeRow.id!, { payloadJson: narrativeRow.payloadJson })
+    }
     const qualityBatchRows = (await db.productBuildArtifacts.where('buildId').equals(build.id!).toArray())
       .filter(row => row.artifactKey.startsWith('quality.adventure-review.'))
     expect(qualityBatchRows).toHaveLength(4)

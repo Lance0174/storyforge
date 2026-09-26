@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { db } from '../../src/lib/db/schema'
 import {
+  canReviseTextAdventureVisualContractFromRecoveryV1,
   canReviseTextAdventureRuntimeCopyFromRecoveryV1,
   canUpgradeTextAdventureExecutionPlanV1,
   executeProductProductionCommand,
@@ -1132,6 +1133,10 @@ describe('PRODUCTPROD-1B · user command control plane', () => {
     const currentPlan = await createProductProductionPlanV3({
       buildNumber: 52, controlEpoch: 3, briefHash, brief: f.brief,
     })
+    const visionPreflight = currentPlan.tasks.find(task => task.taskKey === 'media.vision-preflight')!
+    expect(visionPreflight.budgetReservation.outputTokens).toBeGreaterThanOrEqual(427)
+    expect(visionPreflight.budgetReservation.modelCalls).toBe(1)
+    expect(visionPreflight.maxAttempts).toBe(1)
     const legacyPlan = {
       ...currentPlan,
       tasks: currentPlan.tasks
@@ -1407,6 +1412,26 @@ describe('PRODUCTPROD-1B · user command control plane', () => {
       scope: f.scope, productionId: f.productionId,
     })).rejects.toThrow('叙事质量审查已经通过')
     expect(await db.productProductionBriefs.where('productionId').equals(f.productionId).count()).toBe(1)
+  })
+
+  it('美术输入超限仍走同 Build 重试，不强迫重建视觉 Brief；真实视觉合同失败保留恢复分支', async () => {
+    const f = await fixture('text-adventure', 'key-scenes')
+    const plan = await createProductProductionPlanV3({
+      buildNumber: 1, brief: f.brief, briefHash: await hashProductProductionValueV2(f.brief),
+    })
+    const build = {
+      status: 'recovery-required' as const, planJson: JSON.stringify(plan),
+      failureJson: JSON.stringify({
+        taskKey: 'media.requirements', code: 'task-context-budget-exceeded',
+        detail: '依赖输入超限；未调用模型',
+      }),
+    }
+    expect(canReviseTextAdventureVisualContractFromRecoveryV1(build)).toBe(false)
+    expect(canReviseTextAdventureVisualContractFromRecoveryV1({
+      ...build, failureJson: JSON.stringify({
+        taskKey: 'media.requirements', code: 'task-executor-failed', detail: '角色锚点冲突',
+      }),
+    })).toBe(true)
   })
 
   it('视觉合同质量失败可派生 visual-only 恢复 Build，非视觉装配失败不能冒用该通道', async () => {

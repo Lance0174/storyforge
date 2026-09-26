@@ -256,6 +256,26 @@ describe('PRODUCT-PROD-1E · recovery policy UI', () => {
 
   afterAll(() => db.close())
 
+  it('美术规划候选失败可在原 Build 修订 JSON，同时保留显式重建视觉合同入口', async () => {
+    const f = await seedTextAdventureMediaRevisionWorkbenchV1('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X8WgWQAAAABJRU5ErkJggg==')
+    await db.productBuilds.update(f.parentBuildId, {
+      status: 'recovery-required',
+      failureJson: JSON.stringify({ taskKey: 'media.requirements', code: 'task-executor-failed', detail: '角色槽位不匹配' }),
+    })
+    await db.productProductions.update(f.productionId, { status: 'producing' })
+    await act(async () => root.render(createElement(ProductProductionStudio, {
+      scope: f.scope, initialProductionId: f.productionId,
+      initialProduct: 'text-adventure', allowedProducts: ['text-adventure'],
+    })))
+    await waitFor(() => expect(textarea(host, '作者修订的完整任务 JSON')).toBeTruthy())
+    expect(button(host, '重建媒资规划 Brief')).toBeTruthy()
+    await setTextareaValue(textarea(host, '作者修订的完整任务 JSON')!, '{"schema":"author-media-candidate"}')
+    await act(async () => button(host, '修正后继续制作').click())
+    await waitFor(() => expect(serviceMocks.retryBlocker).toHaveBeenCalledWith(expect.objectContaining({
+      authorDraftJson: '{"schema":"author-media-candidate"}',
+    })))
+  })
+
   it.each([['content.story-bible', '载入故事圣经'], ['content.adventure-architecture', '载入地点架构'], ['content.narrative-arc-scenes', '载入三幕场景计划'], ['content.narrative-decision-plan', '载入玩家决定'], ['content.ending-route-plan', '载入结局路线'], ['content.main-quest-plan', '载入主线任务'], ['content.adventure-side-quests', '载入支线任务'], ['content.adventure-ambient-events', '载入区域事件'], ['content.scene-script.act-1.part-1', '载入第1幕正文1'], ['content.scene-script.act-1.part-2', '载入第1幕正文2'], ['content.scene-script.act-2.part-1', '载入第2幕正文1'], ['content.scene-script.act-2.part-2', '载入第2幕正文2'], ['content.scene-script.act-3.part-1', '载入第3幕正文1'], ['content.scene-script.act-3.part-2', '载入第3幕正文2']])('暂停中的 %s 编辑载入准确原稿，修改理由必填且提交绑定原hash', async (artifactKey, loadLabel) => {
     const f = await seedTextAdventureMediaRevisionWorkbenchV1('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X8WgWQAAAABJRU5ErkJggg==')
     const build = (await db.productBuilds.get(f.parentBuildId))!
