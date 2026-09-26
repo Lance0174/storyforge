@@ -5490,6 +5490,7 @@ function textSystem(
     '输出字段必须精确为：{"schema":"storyforge.text-adventure-production-supervision-artifact","version":1,"productionPromise":"...","stages":[{"key":"g1-source-and-direction|g2-architecture-and-quests|g3-scripts-and-dialogue|g4-quality-and-media|g5-assembly-and-automation|g6-human-validation-and-release","objective":"...","responsibleAgentIds":["text-adventure-showrunner"],"exitCriteria":["..."],"stopConditions":["..."]}],"risks":[{"key":"risk.some-key","severity":"warning|blocking","ownerAgentId":"text-adventure-showrunner","evidence":"...","mitigation":"..."}],"authorGates":[{"key":"gate.some-key","afterStageKey":"g1-source-and-direction","decision":"..."}],"nonGoals":["..."]}。stages 必须恰好六项且 key 顺序与枚举顺序一致；risks 至少三项，authorGates 至少三项，nonGoals 至少三项。'
   if (taskKey === 'content.source-sufficiency') return `${common}\n你是来源编辑，只审查冻结 SourcePlan 能否支撑这次文字冒险生产，不创作剧情正文。` +
     '逐域标记充分、部分、缺失或冲突；resourceKeys 只能引用授权清单。缺少但可在产品私域补齐的内容登记 privateAdditions。' +
+    '本岗位必须完整读取所有已选冻结资源后再判断缺口；索引或摘要未列出的字段不等于世界缺失。角色外貌、语言习惯、经历等已存在的事实必须沿用，不能把改写这些事实列为私域补充。未读、超出读取预算与来源真实缺失必须区分。' +
     '只有冻结来源彼此直接矛盾，或连世界前提、玩家身份、开局冲突这些不可由上层产品改写的锚点都完全缺失时，才允许 blocking。' +
     '角色弧、关系演变、秘密揭示顺序、证据/线索编排、任务钩子、结局触发条件、场景视觉锚点、游戏内通用物品与事件细节，均由后续故事、角色、任务、美术岗位在产品私域设计；它们缺失时只能是 warning/privateAdditions，绝不能据此阻断。' +
     'WorldRelease 允许只有稳定语义锚点而没有上层游戏脚本；当来源已经给出前提、主要人物、空间、规则和核心冲突时，应选择 ready-with-private-additions，让作者审查补充清单。' +

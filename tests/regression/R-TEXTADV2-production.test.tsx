@@ -93,7 +93,7 @@ describe('R-TEXTADV2-production · 文字冒险正式生产契约与工作台', 
     ]))
     expect(getAgentSkillV1('text-adventure.cast-bible.v1')).toMatchObject({
       agentId: 'text-adventure-cast-director',
-      promptVersion: 'text-adventure-cast-bible-v2',
+      promptVersion: 'text-adventure-cast-bible-v3',
       maxOutputTokens: 16_000,
     })
     expect(getAgentSkillV1('text-adventure.narrative-design.v1')).toMatchObject({
