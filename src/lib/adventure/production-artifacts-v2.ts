@@ -1193,14 +1193,47 @@ export function textAdventureConflictingLocationAliasesV1(input: {
   expectedLocation: string
   locationTitles: readonly string[]
 }): string[] {
+  // A portable document can name its origin without moving the objective.
+  // Require an explicit reading/inspection verb and a document/mark noun;
+  // any movement wording or a second unqualified occurrence still conflicts.
+  const text = input.text
+  const isPortableReference = (start: number, end: number): boolean => {
+    const before = text.slice(Math.max(0, start - 24), start)
+    const after = text.slice(end)
+    return /(?:辨认|核对|阅读|查看|检查|比对|研究|解读|抄录)[^。！？；\n]*$/u.test(before)
+      && !/(?:前往|抵达|进入|赶往|返回|回到|走向|去往|来到|赶到|走到|去|到)[^。！？；\n]*$/u.test(before)
+      && /^(?:的)?(?:记号|徽记|印记|图纸|笔记|记录|航图)/u.test(after)
+  }
+  const portableTitleSpans = input.locationTitles.filter(Boolean).flatMap(title => {
+    const spans: Array<{ start: number; end: number }> = []
+    let offset = text.indexOf(title)
+    while (offset >= 0) {
+      if (isPortableReference(offset, offset + title.length)) {
+        spans.push({ start: offset, end: offset + title.length })
+      }
+      offset = text.indexOf(title, offset + title.length)
+    }
+    return spans
+  })
+  const mentionsPlace = (alias: string): boolean => {
+    let offset = text.indexOf(alias)
+    while (offset >= 0) {
+      const portableReference = portableTitleSpans.some(span => (
+        offset >= span.start && offset + alias.length <= span.end
+      )) || isPortableReference(offset, offset + alias.length)
+      if (!portableReference) return true
+      offset = text.indexOf(alias, offset + alias.length)
+    }
+    return false
+  }
   const candidates = new Set<string>()
   for (const title of input.locationTitles) {
     if (!title || title === input.expectedLocation) continue
-    if (input.text.includes(title)) candidates.add(title)
+    if (mentionsPlace(title)) candidates.add(title)
     for (const alias of TEXT_ADVENTURE_LOCATION_KIND_ALIASES_V1) {
       if (!title.includes(alias)
         || input.expectedLocation.includes(alias)
-        || !input.text.includes(alias)) continue
+        || !mentionsPlace(alias)) continue
       const qualifiedAlias = new RegExp(
         `${alias}(?:顶端|顶部|底部|内部|门口|入口|附近|地下|上层|深处)?`,
         'u',
@@ -1213,7 +1246,7 @@ export function textAdventureConflictingLocationAliasesV1(input: {
     const glyphs = Array.from(title)
     for (let length = glyphs.length - 1; length >= 3; length -= 1) {
       const suffix = glyphs.slice(glyphs.length - length).join('')
-      if (!input.expectedLocation.includes(suffix) && input.text.includes(suffix)) {
+      if (!input.expectedLocation.includes(suffix) && mentionsPlace(suffix)) {
         candidates.add(suffix)
         break
       }
