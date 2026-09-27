@@ -814,6 +814,15 @@ export async function readTextAdventureVisualQualityInputsV1(input: AssembleCont
   const visualBible = payloadByKey.get('media.visual-bible') ?? {}
   const cast = payloadByKey.get('content.cast-bible') ?? {}
   const audit = payloadByKey.get('media.audit') ?? {}
+  const visualKeySet = new Set(visualKeys)
+  const requirements = contextRows(mediaRequirements.visual)
+    .filter(requirement => visualKeySet.has(String(requirement.artifactKey)))
+  const auditAssets = contextRows(audit.assets)
+    .filter(asset => visualKeySet.has(String(asset.artifactKey)))
+  if (visualKeys.some(key => requirements.filter(row => row.artifactKey === key).length !== 1
+    || auditAssets.filter(row => row.artifactKey === key).length !== 1)) {
+    throw new Error('[product-production-context] 视觉审查批次的需求或审计证据缺失或重复')
+  }
   const packet = {
     schema: 'storyforge.text-adventure-visual-quality-inputs', version: 1,
     buildNumber: build.buildNumber,
@@ -828,10 +837,10 @@ export async function readTextAdventureVisualQualityInputsV1(input: AssembleCont
       key: character.key, name: character.name, role: character.role,
       publicIdentity: character.publicIdentity, visualAnchor: character.visualAnchor,
     })),
-    requirements: contextRows(mediaRequirements.visual),
+    requirements,
     audit: {
       requirementsHash: audit.requirementsHash, visualBibleHash: audit.visualBibleHash,
-      assets: audit.assets,
+      assets: auditAssets,
     },
     images: visualKeys.map(artifactKey => {
       const row = rowByKey.get(artifactKey)!
@@ -850,7 +859,7 @@ export async function readTextAdventureVisualQualityInputsV1(input: AssembleCont
   const serialized = JSON.stringify(packet)
   const estimatedTokens = estimateTokens(serialized)
   if (estimatedTokens > 12_000) {
-    throw new Error(`[product-production-context] 视觉审查投影超过登记预算:${estimatedTokens}/12000`)
+    throw new ProductProductionContextBudgetErrorV1(`[product-production-context] 视觉审查投影超过登记预算:${estimatedTokens}/12000`)
   }
   return serialized
 }

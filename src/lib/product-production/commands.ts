@@ -567,6 +567,14 @@ export function canReviseTextAdventureVisualContractFromRecoveryV1(
     // ordinary same-Build retry visible after its registered reader is fixed;
     // it must not force a new Brief or discard already accepted narrative.
     if (taskKey === 'media.requirements' && failure.code === 'task-context-budget-exceeded') return false
+    if (/^media\.visual-quality-review\.batch-\d+$/.test(taskKey)
+      && (failure.code === 'task-context-budget-exceeded'
+        || failure.code === 'task-preflight-failed' && typeof failure.detail === 'string'
+          && /^\[product-production-context\] 视觉审查投影超过登记预算:\d+\/12000$/.test(failure.detail))) {
+      // A rejected review packet is not a failed image contract. Retrying its
+      // corrected projection must preserve all already generated images.
+      return false
+    }
     const directlyVisual = taskKey === 'media.requirements'
       || taskKey === 'media.audit'
       || taskKey === 'media.visual-quality-review'

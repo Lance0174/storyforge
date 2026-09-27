@@ -1448,6 +1448,20 @@ describe('PRODUCTPROD-1B · user command control plane', () => {
       }),
     }
     expect(canReviseTextAdventureVisualContractFromRecoveryV1(build)).toBe(false)
+    for (const code of ['task-preflight-failed', 'task-context-budget-exceeded']) {
+      expect(canReviseTextAdventureVisualContractFromRecoveryV1({
+        ...build, failureJson: JSON.stringify({
+          taskKey: 'media.visual-quality-review.batch-1', code,
+          detail: '[product-production-context] 视觉审查投影超过登记预算:13658/12000',
+        }),
+      })).toBe(false)
+    }
+    expect(canReviseTextAdventureVisualContractFromRecoveryV1({
+      ...build, failureJson: JSON.stringify({
+        taskKey: 'media.visual-quality-review.batch-1', code: 'task-executor-failed',
+        detail: '视觉身份与需求冲突',
+      }),
+    })).toBe(true)
     expect(canReviseTextAdventureVisualContractFromRecoveryV1({
       ...build, failureJson: JSON.stringify({
         taskKey: 'media.requirements', code: 'task-executor-failed', detail: '角色锚点冲突',

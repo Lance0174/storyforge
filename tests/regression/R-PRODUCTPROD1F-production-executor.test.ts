@@ -8,7 +8,7 @@ import { db } from '../../src/lib/db/schema'
 import { getAgentSkillV1, TEXT_ADVENTURE_PRODUCTION_AGENT_IDS } from '../../src/lib/agent/skill-registry'
 import { prepareProductProductionAdoption } from '../../src/lib/product-production/adoption'
 import { executeProductProductionCommand } from '../../src/lib/product-production/commands'
-import { validateProductProductionRecoveryDirectiveV1, readTextAdventureRepairFeedbackV1, readTextAdventureVisualDirectionInputsV1 } from '../../src/lib/product-production/context'
+import { validateProductProductionRecoveryDirectiveV1, readTextAdventureRepairFeedbackV1, readTextAdventureVisualDirectionInputsV1, readTextAdventureVisualQualityInputsV1 } from '../../src/lib/product-production/context'
 import { draftProductProductionBriefV3, suggestProductStartingPoints } from '../../src/lib/product-production/consultation'
 import { parseProductProductionBriefV3 } from '../../src/lib/product-production/contracts'
 import { hashProductProductionValueV2 } from '../../src/lib/product-production/hash'
@@ -3597,6 +3597,56 @@ describe('R-PRODUCTPROD-1F · provider JSON response normalization', () => {
       ],
       authorResolution: null,
     })).rejects.toThrow('mediaAnchorDecision schema/version/hash 无效')
+  })
+
+  it('视觉单图审查只读取本批完整需求与审计，保留全局锚点且拒绝缺失或重复绑定', async () => {
+    const owned = await fixtureForProduct('text-adventure')
+    const build = (await db.productBuilds.where('productionId').equals(owned.productionId).first())!
+    const visual = Array.from({ length: 12 }, (_, index) => ({
+      artifactKey: `media.visual.${String(index + 1).padStart(3, '0')}`,
+      prompt: '保留全部当前画面动作与约束。'.repeat(400),
+    }))
+    const bible = { style: '统一水粉', characterAnchors: [{ characterKey: 'player', visualAnchor: '黑发' }] }
+    const payloads = {
+      'content.cast-bible': { characters: [{ key: 'player', name: '岚舟' }] },
+      'media.requirements': { visual },
+      'media.visual-bible': bible,
+      'media.audit': { requirementsHash: 'a'.repeat(64), visualBibleHash: 'b'.repeat(64), assets: visual.map(row => ({ artifactKey: row.artifactKey, status: 'fulfilled' })) },
+      'media.visual.001': {},
+    }
+    for (const [artifactKey, payload] of Object.entries(payloads)) {
+      await db.productBuildArtifacts.add({
+        projectId: owned.scope.projectId, worldId: owned.scope.worldId, workId: owned.scope.workId,
+        buildId: build.id!, artifactKey, requirementKey: null, version: 1,
+        kind: 'asset-manifest', mediaKind: null, status: 'accepted', producerRunId: null,
+        producerReceiptHash: null, controlEpoch: build.controlEpoch, inputHash: 'c'.repeat(64),
+        contentHash: await hashProductProductionValueV2(payload), payloadJson: JSON.stringify(payload),
+        metadataJson: '{}', qualityJson: '{}', rightsJson: '{}', blobObjectId: null,
+        mimeType: 'application/json', byteSize: 0, parentArtifactHash: null, carriedFrom: null,
+        createdAt: 1, updatedAt: 1,
+      })
+    }
+    const input = {
+      projectId: owned.scope.projectId, scope: owned.scope, productProductionId: owned.productionId,
+      productBuildId: build.id!, productProductionTaskKey: 'media.visual-quality-review.batch-1',
+      productArtifactKeys: Object.keys(payloads),
+    }
+    const packet = JSON.parse(await readTextAdventureVisualQualityInputsV1(input))
+    expect(packet.requirements).toEqual([visual[0]])
+    expect(packet.audit.assets).toEqual([{ artifactKey: visual[0].artifactKey, status: 'fulfilled' }])
+    expect(packet.visualBible.characterAnchors).toEqual(bible.characterAnchors)
+    expect(packet.sources).toHaveLength(5)
+    const requirement = (await db.productBuildArtifacts.where('[buildId+artifactKey]')
+      .equals([build.id!, 'media.requirements']).first())!
+    for (const invalid of [visual.slice(1), [...visual, visual[0]]]) {
+      await db.productBuildArtifacts.update(requirement.id!, { payloadJson: JSON.stringify({ visual: invalid }) })
+      await expect(readTextAdventureVisualQualityInputsV1(input)).rejects.toThrow('需求或审计证据缺失或重复')
+    }
+    await db.productBuildArtifacts.update(requirement.id!, { payloadJson: requirement.payloadJson })
+    const audit = (await db.productBuildArtifacts.where('[buildId+artifactKey]')
+      .equals([build.id!, 'media.audit']).first())!
+    await db.productBuildArtifacts.update(audit.id!, { payloadJson: JSON.stringify({ assets: [] }) })
+    await expect(readTextAdventureVisualQualityInputsV1(input)).rejects.toThrow('需求或审计证据缺失或重复')
   })
 
   it('独立 Visual QA Director 实际接收冻结图片 key/hash，并由逐项证据派生审图结论', async () => {
