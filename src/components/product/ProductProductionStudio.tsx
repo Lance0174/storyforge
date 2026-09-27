@@ -1578,6 +1578,22 @@ export default function ProductProductionStudio(props: {
     setMessage(`图片 ${asset.artifactKey} 已执行 ${action}：Build #${result.parentBuildNumber} 保持不可变，新 Build #${result.buildNumber} 将自动重新装配和质检。`)
   }, `修订图片 · ${action}`)
 
+  const regenerateAuthorRejectedImages = () => run(async () => {
+    if (!details || !humanVisualGate || humanVisualGate.evidence.passed) {
+      throw new Error('缺少当前 Build 已冻结的逐图退回回执。')
+    }
+    const assets = mediaAssets.filter(asset => authorRejectedAssetKeys.has(asset.artifactKey))
+    const result = await regenerateTextAdventureMediaAssetsV1({
+      scope: props.scope, details, assets,
+      authorReview: {
+        sourceGateReceiptHash: humanVisualGate.gateReceipt.receiptHash,
+        sourceEvidenceHash: await hashProductProductionValueV2(humanVisualGate.evidence),
+      },
+    })
+    await refresh(details.production.id)
+    setMessage(`已将 ${result.artifactKeys.length} 张作者退回图片交给 Build #${result.buildNumber} 定向返修；其余内容与图片继续复用。`)
+  }, '批量返修作者退回图片')
+
   const regenerateVisualReviewFailures = () => run(async () => {
     if (!details) throw new Error('缺少当前文字冒险 Production。')
     const visualReview = reviewArtifacts.find(artifact => artifact.artifactKey === 'quality.visual-review')
@@ -1851,6 +1867,9 @@ export default function ProductProductionStudio(props: {
     () => mediaAssets.filter(asset => visualRepairAssetKeys.has(asset.artifactKey)),
     [mediaAssets, visualRepairAssetKeys],
   )
+  const canUploadMediaReplacement = details?.production.status === 'preview-ready'
+    || details?.production.status === 'producing' && details.build?.status === 'recovery-required'
+      && blockerTaskKey === 'integration.package' && visualReviewStatus === 'revision-required'
   const mediaAuditPassed = !!mediaAuditArtifact?.payload && typeof mediaAuditArtifact.payload === 'object'
     && !Array.isArray(mediaAuditArtifact.payload)
     && (mediaAuditArtifact.payload as Record<string, unknown>).passed === true
@@ -2180,6 +2199,7 @@ export default function ProductProductionStudio(props: {
             <label className="flex items-center gap-2"><input type="checkbox" checked={mediaCommercialUse} onChange={event => setMediaCommercialUse(event.target.checked)} />我确认允许商业使用</label>
             <label className="flex items-center gap-2"><input type="checkbox" checked={mediaRedistribution} onChange={event => setMediaRedistribution(event.target.checked)} />我确认允许随导出包与社区作品再分发</label>
           </div>
+          {authorRejectedAssetKeys.size > 0 && <button type="button" disabled={busy || productionRunning || !humanVisualReviewReady || details.production.status !== 'preview-ready'} onClick={regenerateAuthorRejectedImages} className="mt-3 rounded border border-error/40 bg-error/10 px-4 py-2 text-xs text-error disabled:opacity-40">按已冻结意见批量返修 {authorRejectedAssetKeys.size} 张</button>}
           <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{mediaAssets.map(asset => <article key={`${asset.artifactKey}:${asset.version}`} className="overflow-hidden rounded border border-border bg-bg-base">
             <TextAdventureMediaThumbnail scope={props.scope} asset={asset} />
             <div className="p-3 text-[10px]"><span className="flex items-center justify-between gap-2"><strong className="text-xs">{String(asset.metadata.name ?? asset.artifactKey)}</strong><em className={`not-italic ${asset.locked ? 'text-accent' : 'text-text-muted'}`}>{asset.locked ? '已锁定' : '可重生成'}</em></span><p className="mt-1 text-text-muted">{asset.assetKey} · {asset.artifactKey} · {asset.mimeType} · {formatBytes(asset.byteSize)}</p><p className="mt-1 text-text-muted">{String(asset.metadata.source ?? 'unknown')} · {String(asset.metadata.license ?? asset.rights.license ?? '未声明许可')}</p><code className="mt-1 block text-[9px]" title={asset.contentHash}>{compactHash(asset.contentHash)}</code>
@@ -2202,7 +2222,7 @@ export default function ProductProductionStudio(props: {
                   </div>
                 </div>
               })()}
-              <div className="mt-3 flex flex-wrap gap-2"><label className={`flex cursor-pointer items-center gap-1 rounded border border-accent/40 px-2 py-1 text-accent ${(busy || productionRunning || details.production.status !== 'preview-ready') ? 'pointer-events-none opacity-40' : ''}`}><Upload className="h-3 w-3" />上传替换<input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" disabled={busy || productionRunning || details.production.status !== 'preview-ready'} onChange={event => { const file = event.target.files?.[0]; event.currentTarget.value = ''; if (file) void reviseMediaAsset(asset, 'upload-replacement', file) }} /></label>{asset.locked ? <button disabled={busy || productionRunning || details.production.status !== 'preview-ready'} onClick={() => reviseMediaAsset(asset, 'unlock')} className="flex items-center gap-1 rounded border border-border px-2 py-1 disabled:opacity-40"><Unlock className="h-3 w-3" />解锁</button> : <><button disabled={busy || productionRunning || details.production.status !== 'preview-ready'} onClick={() => reviseMediaAsset(asset, 'lock')} className="flex items-center gap-1 rounded border border-border px-2 py-1 disabled:opacity-40"><Lock className="h-3 w-3" />锁定</button><button disabled={busy || productionRunning || details.production.status !== 'preview-ready' || !authorRejectedAssetKeys.has(asset.artifactKey)} title={authorRejectedAssetKeys.has(asset.artifactKey) ? '按冻结作者退回意见生成新候选' : '先退回此图并冻结逐图审查回执'} onClick={() => reviseMediaAsset(asset, 'regenerate')} className="flex items-center gap-1 rounded border border-border px-2 py-1 disabled:opacity-40"><RefreshCw className="h-3 w-3" />按作者意见重生成</button></>}</div>
+              <div className="mt-3 flex flex-wrap gap-2"><label className={`flex cursor-pointer items-center gap-1 rounded border border-accent/40 px-2 py-1 text-accent ${(busy || productionRunning || !canUploadMediaReplacement) ? 'pointer-events-none opacity-40' : ''}`}><Upload className="h-3 w-3" />上传替换<input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" disabled={busy || productionRunning || !canUploadMediaReplacement} onChange={event => { const file = event.target.files?.[0]; event.currentTarget.value = ''; if (file) void reviseMediaAsset(asset, 'upload-replacement', file) }} /></label>{asset.locked ? <button disabled={busy || productionRunning || details.production.status !== 'preview-ready'} onClick={() => reviseMediaAsset(asset, 'unlock')} className="flex items-center gap-1 rounded border border-border px-2 py-1 disabled:opacity-40"><Unlock className="h-3 w-3" />解锁</button> : <><button disabled={busy || productionRunning || details.production.status !== 'preview-ready'} onClick={() => reviseMediaAsset(asset, 'lock')} className="flex items-center gap-1 rounded border border-border px-2 py-1 disabled:opacity-40"><Lock className="h-3 w-3" />锁定</button><button disabled={busy || productionRunning || details.production.status !== 'preview-ready' || !authorRejectedAssetKeys.has(asset.artifactKey)} title={authorRejectedAssetKeys.has(asset.artifactKey) ? '按冻结作者退回意见生成新候选' : '先退回此图并冻结逐图审查回执'} onClick={() => reviseMediaAsset(asset, 'regenerate')} className="flex items-center gap-1 rounded border border-border px-2 py-1 disabled:opacity-40"><RefreshCw className="h-3 w-3" />按作者意见重生成</button></>}</div>
               {commercialHumanVisualRequired && <fieldset disabled={!humanVisualReviewReady} className="mt-3 rounded border border-border bg-bg-surface p-3 disabled:opacity-50" data-testid={`text-adventure-human-visual-${asset.artifactKey}`}><legend className="px-1 font-semibold">作者对当前冻结图片的判断</legend><div className="flex gap-2"><button type="button" aria-pressed={humanVisualDecisions[asset.artifactKey] === 'approved'} onClick={() => setHumanVisualDecisions(current => ({ ...current, [asset.artifactKey]: 'approved' }))} className={`rounded border px-3 py-1 ${humanVisualDecisions[asset.artifactKey] === 'approved' ? 'border-success bg-success/10 text-success' : 'border-border'}`}>接受此图</button><button type="button" aria-pressed={humanVisualDecisions[asset.artifactKey] === 'rejected'} onClick={() => setHumanVisualDecisions(current => ({ ...current, [asset.artifactKey]: 'rejected' }))} className={`rounded border px-3 py-1 ${humanVisualDecisions[asset.artifactKey] === 'rejected' ? 'border-error bg-error/10 text-error' : 'border-border'}`}>退回修改</button></div><label className="mt-2 grid gap-1"><span>审查备注{humanVisualDecisions[asset.artifactKey] === 'rejected' ? '（退回必填）' : '（可选）'}</span><textarea value={humanVisualNotes[asset.artifactKey] ?? ''} onChange={event => setHumanVisualNotes(current => ({ ...current, [asset.artifactKey]: event.target.value }))} maxLength={2000} rows={2} placeholder="说明构图、角色一致性、剧透、文字伪影或其他问题" className="rounded border border-border bg-bg-base p-2" /></label></fieldset>}
             </div>
           </article>)}</div>

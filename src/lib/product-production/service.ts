@@ -783,6 +783,7 @@ export async function regenerateTextAdventureMediaAssetsV1(input: {
   scope: WorkspaceScope
   details: ProductProductionDetailsV1
   assets: TextAdventureMediaAssetV1[]
+  authorReview?: { sourceGateReceiptHash: string; sourceEvidenceHash: string }
 }): Promise<{ parentBuildNumber: number; buildNumber: number; artifactKeys: string[] }> {
   const build = input.details.build
   if (!build || input.details.production.productType !== 'text-adventure') {
@@ -800,6 +801,7 @@ export async function regenerateTextAdventureMediaAssetsV1(input: {
       type: 'revise-media-assets', commandId: commandId('media-batch-regenerate'),
       expectedStateRevision: input.details.production.stateRevision,
       buildNumber: build.buildNumber, action: 'regenerate', targets,
+      ...(input.authorReview ? { authorReview: input.authorReview } : {}),
     },
   })
   if (!receipt.ok) throw new Error(String(receipt.result.message ?? receipt.errorCode ?? '批量媒资修复失败'))

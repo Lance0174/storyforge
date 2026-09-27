@@ -897,6 +897,8 @@ export type ProductProductionCommandV1 =
     }
   | {
       type: "revise-media-assets";
+      /** Optional frozen author rejection; absent retains Visual QA recovery. */
+      authorReview?: { sourceGateReceiptHash: string; sourceEvidenceHash: string };
       commandId: string;
       expectedStateRevision: number;
       buildNumber: number;

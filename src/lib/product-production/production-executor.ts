@@ -8096,6 +8096,8 @@ export function textAdventureVisualRepairCastConstraintV1(input: {
   const needsMechanicalCasketShape = /机械记忆匣/.test(`${input.scenePrompt ?? ''}\n${input.repairEvidence}`)
     && /(?:圆柱|圆盘|圆形|手持工具|钥匙|匣\/盒|盒形|可开合)/.test(input.repairEvidence)
   const promptSuffix = [
+    ...targetCharacters.filter(character => /右手.{0,4}(?:两|二|2)(?:根|个)?(?:手)?指.{0,8}铜/.test(character.visualAnchor))
+      .map(character => `「${character.name}」的右手结构必须清晰：仅两根手指是小型铜义指，其余三根手指、整个手掌、手背、手腕和前臂全部是自然人类皮肤。EXACT ANATOMY for ${character.name}: one ordinary human right hand with exactly TWO copper finger prostheses; the other THREE fingers, entire palm, back of hand, wrist and forearm are living human flesh. No metal glove, metal palm, mechanical hand or mechanical forearm. Keep all five fingers individually visible and separated.`),
     playerOnlyLostMentorScene && player && lostMentor
       ? `本次返修严格采用单角色构图，唯一可见角色是「${player.name}」：${player.publicIdentity}；` +
         `视觉锚点：${player.visualAnchor}。「${lostMentor.name}」是失踪导师，不得以人物、肖像、倒影、剪影或幻影入画，` +
@@ -8270,6 +8272,16 @@ export function positiveImageRepairDirectiveV1(recommendation: string, category:
     .join('；')
 }
 
+/** Render narrative text-bearing props without contradicting the frozen
+ * no-glyph image contract. The source facts and runtime prose stay intact. */
+export function glyphSafeTextAdventureProviderPromptV1(prompt: string): string {
+  return prompt
+    .replace(/(?:写满|写有|记满)(?:人名|名字|姓名)的防水笔记/gu, '封面空白且页面合拢的防水笔记')
+    .replace(/(?:缝满|缝着|写满)(?:失去意义的)?(?:名字|人名|姓名)/gu, '留有零散不成字的短线缝痕')
+    .replace(/(?:密密麻麻的)?手写(?:名字|人名|姓名)痕迹/gu, '零散不成字的短线痕迹')
+    .replace(/(?:母亲)?(?:名字|姓名)(?:被)?(?:划掉|划去|擦去)的旧名牌/gu, '表面自然磨损且完全空白的旧名牌')
+}
+
 export async function textAdventureVisualAnchorConfirmationHashV1(
   visualBible: TextAdventureVisualBibleArtifactV1,
 ): Promise<string> {
@@ -8438,12 +8450,13 @@ async function executeVisualTask(input: ProductProductionTaskExecutionInputV1, o
       ? '地球、世界地图、地球仪、真实大陆、真实海岸线、北美洲、南美洲、欧洲、非洲、亚洲、大洋洲、罗盘玫瑰、第二个箭头、第二条路线、装饰边框、嵌套小图、雪花、冰晶、角花、刻度、圆盘、光晕、碎岛、卫星岛、Earth, world map, globe, real continent, real coastline, compass rose, duplicate arrow, second route, decorative border, inset map, snowflake, ice crystal, corner ornament, tick marks, dial, glow, satellite islet, extra island'
       : ''
     const providerPromptOverride = repairCastConstraint.promptOverride || glyphSafeMapPrompt
-    const providerPrompt = `${visualStyleContract}${providerPromptOverride || baseProviderPrompt}` +
+    const rawProviderPrompt = `${visualStyleContract}${providerPromptOverride || baseProviderPrompt}` +
       `${repairInstruction}${repairCastConstraint.promptSuffix}` + (repairRequiresGlyphSuppression
       ? providerPromptOverride
         ? '\nABSOLUTE SURFACE DESIGN: every manufactured surface is one uninterrupted field of blank material. Communicate all information only through large non-repeating silhouettes, color blocks, light, volume, rivets, and natural wear.'
         : '\nABSOLUTE REPAIR CONSTRAINT: blank artifact surfaces; no readable text, letters, numbers, pseudo-text, runes, labels, logos, signatures, or character-like marks. Do not replace forbidden text with invented glyphs.'
       : '')
+    const providerPrompt = cast ? glyphSafeTextAdventureProviderPromptV1(rawProviderPrompt) : rawProviderPrompt
     if (repairFeedbackArtifact && requirement.sceneTag === 'region-map') {
       const bytes = await deterministicRegionMapPngV1(requirement)
       const blob = await putMediaBlobObject({

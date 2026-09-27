@@ -33,6 +33,7 @@ import {
   parseProductionModelJsonObjectV1,
   parseTextAdventureVisualQualityReviewArtifactV1,
   positiveImageRepairDirectiveV1,
+  glyphSafeTextAdventureProviderPromptV1,
   productMediaCharacterPresentationConstraintV1,
   productImageNegativePromptV1,
   productImageRequestNegativePromptV1,
@@ -1776,6 +1777,27 @@ describe('R-PRODUCTPROD-1F · provider JSON response normalization', () => {
     expect(map).toContain('These three cloche pictograms are the complete symbol set')
     expect(positiveImageRepairDirectiveV1('仅保留三个主要岛屿，删除四个小型副岛。', 'composition'))
       .toContain('严格只出现三个')
+  })
+
+  it('两指义肢不能扩展为整手机械，无字媒资合同也约束姓名类正向提示', () => {
+    const characters = [{ key: 'mentor', name: '导师', role: 'major-npc' as const,
+      publicIdentity: '修复师', visualAnchor: '高瘦，右手两指为铜制义指，旧工装内衬缝满失去意义的名字' }]
+    const constraint = textAdventureVisualRepairCastConstraintV1({
+      repairEvidence: '仅保留两根铜义指', mediaKind: 'character-pose', anchorRefs: ['mentor'], characters,
+    })
+    expect(constraint.promptSuffix).toContain('exactly TWO copper finger prostheses')
+    expect(constraint.promptSuffix).toContain('other THREE fingers, entire palm')
+    expect(textAdventureVisualRepairCastConstraintV1({
+      repairEvidence: '', mediaKind: 'character-pose', characters: [{ ...characters[0], visualAnchor: '右手完整机械义肢' }],
+    }).promptSuffix).not.toContain('TWO copper')
+    const original = '旧工装内衬缝满失去意义的名字；写满人名的防水笔记；清晰可见密密麻麻的手写名字痕迹。'
+    const rendered = glyphSafeTextAdventureProviderPromptV1(original)
+    expect(rendered).not.toMatch(/缝满|写满|手写名字/)
+    expect(rendered).toContain('页面合拢的防水笔记')
+    expect(rendered).toContain('不成字的短线')
+    expect(glyphSafeTextAdventureProviderPromptV1('母亲名字被划掉的旧名牌')).toBe('表面自然磨损且完全空白的旧名牌')
+    expect(original).toContain('缝满失去意义的名字')
+    expect(glyphSafeTextAdventureProviderPromptV1('名字是故事的主题，导师站在灯塔里。')).toBe('名字是故事的主题，导师站在灯塔里。')
   })
 
   it('眉部细疤作为微细节不可单独阻塞 CG 或角色立绘', () => {

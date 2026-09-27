@@ -37,6 +37,7 @@ import {
   TEXT_ADVENTURE_QUALITY_REVIEW_TIMEOUT_MS_V1,
 } from './plan'
 import { readMediaBlobObjectData } from './media-blob-store'
+import { isProductImageDeliveryDimensionCompatibleV1 } from './media-adapters'
 import { parseTextAdventureQualityReviewArtifactV1 } from '../adventure/production-artifacts'
 import {
   verifyTextAdventureHumanVisualReviewReceiptV1,
@@ -2035,10 +2036,12 @@ async function applyCommand(input: {
       : [{ artifactKey: command.artifactKey, expectedArtifactHash: command.expectedArtifactHash }]
     const revisionAction: ReviseMediaCommandV1['action'] = batchRepair ? 'regenerate' : command.action
     const replacement = batchRepair ? null : command.replacement
-    const authorRepairFeedback = singleCommand?.repairFeedback ?? null
+    const authorRepairFeedback = singleCommand?.repairFeedback ?? (batchRepair ? command.authorReview : null)
+    const automaticBatchRepair = batchRepair && !authorRepairFeedback
+    const uploadRecovery = revisionAction === 'upload-replacement' && production.status === 'producing'
     if (production.productType !== 'text-adventure'
-      || (batchRepair ? production.status !== 'producing' : production.status !== 'preview-ready')) {
-      reject('invalid-state-transition', batchRepair
+      || (automaticBatchRepair || uploadRecovery ? production.status !== 'producing' : production.status !== 'preview-ready')) {
+      reject('invalid-state-transition', automaticBatchRepair
         ? '仅审图阻塞中的文字冒险 Production 可发起批量媒资修复'
         : '仅已完成预览的文字冒险 Production 可发起单项媒资修订')
     }
@@ -2046,13 +2049,13 @@ async function applyCommand(input: {
     if (parentBuild.buildNumber !== command.buildNumber || parentBuild.releasedProductReleaseId != null) {
       reject('invalid-state-transition', '只能从当前未发布 Build 派生媒资修订')
     }
-    if (batchRepair) {
+    if (automaticBatchRepair || uploadRecovery) {
       const failure = readResult(parentBuild.failureJson)
       if (parentBuild.status !== 'recovery-required'
         || failure.taskKey !== 'integration.package'
         || typeof failure.detail !== 'string'
         || !failure.detail.includes('独立图片审查未通过')) {
-        reject('invalid-state-transition', '批量重生成仅用于独立 Visual QA 阻塞的 Build')
+        reject('invalid-state-transition', '审图恢复修订仅用于独立 Visual QA 阻塞的 Build')
       }
     } else if (!['preview-ready', 'release-ready'].includes(parentBuild.status)) {
       reject('invalid-state-transition', '单项媒资修订只能从已完成预览的 Build 派生')
@@ -2104,7 +2107,7 @@ async function applyCommand(input: {
       sourceHash: string
       sourceArtifact: ProductBuildArtifactRecordV1 | null
     } | null = null
-    if (batchRepair) {
+    if (automaticBatchRepair || uploadRecovery) {
       const sourceArtifact = parentArtifacts.find(row => row.artifactKey === 'quality.visual-review')
       if (!sourceArtifact) reject('media-revision-invalid', 'Visual QA 阻塞 Build 缺少审查报告')
       const report = objectJson(sourceArtifact.payloadJson, 'quality.visual-review.payload')
@@ -2155,7 +2158,7 @@ async function applyCommand(input: {
         })
         const rejected = review.verdict === 'revise' || review.verdict === 'replace'
           || review.verdict === 'human-review' || issues.some(issue => issue.severity === 'blocking')
-        if (!rejected) reject('media-revision-invalid', `图片未被 Visual QA 退回:${target.artifactKey}`)
+        if (!rejected && !uploadRecovery) reject('media-revision-invalid', `图片未被 Visual QA 退回:${target.artifactKey}`)
         const verdict = rejected && review.verdict === 'accept' ? 'revise' : review.verdict
         return {
           artifactKey: target.artifactKey,
@@ -2172,7 +2175,7 @@ async function applyCommand(input: {
         sourceReview: report,
         targets: feedbackTargets.sort((left, right) => left.artifactKey.localeCompare(right.artifactKey)),
       }
-      visualRepairFeedback = {
+      if (!uploadRecovery) visualRepairFeedback = {
         payload,
         inputHash: await hashProductProductionValueV2({
           schema: 'storyforge.text-adventure-visual-repair-feedback-input', version: 1,
@@ -2203,16 +2206,22 @@ async function applyCommand(input: {
       const evidenceHash = await hashProductProductionValueV2(evidence)
       if (evidenceHash !== authorRepairFeedback.sourceEvidenceHash
         || evidence.buildNumber !== parentBuild.buildNumber
-        || !singleCommand
-        || authorRepairFeedback.priorContentHash !== singleCommand.expectedArtifactHash) {
+        || singleCommand && singleCommand.repairFeedback?.priorContentHash !== singleCommand.expectedArtifactHash) {
         reject('source-stale', '作者退回证据与父 Build 或当前图片 hash 不一致')
       }
-      const rejected = evidence.assets.find(asset => asset.artifactKey === singleCommand.artifactKey)
-      if (!rejected || rejected.decision !== 'rejected'
-        || rejected.contentHash !== singleCommand.expectedArtifactHash
-        || rejected.note !== authorRepairFeedback.note.trim().normalize('NFC')) {
-        reject('media-revision-invalid', '作者退回证据未绑定目标图片与当前修订意见')
-      }
+      const authorTargets = revisionTargets.map(target => {
+        const rejected = evidence.assets.find(asset => asset.artifactKey === target.artifactKey)
+        if (!rejected || rejected.decision !== 'rejected'
+          || rejected.contentHash !== target.expectedArtifactHash || !rejected.note.trim()
+          || singleCommand && rejected.note !== singleCommand.repairFeedback?.note.trim().normalize('NFC')) {
+          reject('media-revision-invalid', '作者退回证据未绑定目标图片与当前修订意见')
+        }
+        return {
+          artifactKey: target.artifactKey, priorContentHash: target.expectedArtifactHash,
+          verdict: 'human-review', scores: null,
+          issues: [{ severity: 'blocking', category: 'author-direction', detail: rejected.note, recommendation: rejected.note }],
+        }
+      })
       const sourceReview = {
         schema: 'storyforge.text-adventure-author-visual-repair-source', version: 1,
         gateReceiptHash: gateReceipt.receiptHash, evidence,
@@ -2222,15 +2231,7 @@ async function applyCommand(input: {
         sourceBuildNumber: parentBuild.buildNumber,
         sourceReviewArtifactHash: await hashProductProductionValueV2(sourceReview),
         sourceReview,
-        targets: [{
-          artifactKey: singleCommand.artifactKey,
-          priorContentHash: singleCommand.expectedArtifactHash,
-          verdict: 'human-review', scores: null,
-          issues: [{
-            severity: 'blocking', category: 'author-direction',
-            detail: rejected.note, recommendation: rejected.note,
-          }],
-        }],
+        targets: authorTargets,
       }
       visualRepairFeedback = {
         payload,
@@ -2272,7 +2273,7 @@ async function applyCommand(input: {
       command: {
         commandId: command.commandId, action: revisionAction, targets: revisionTargets,
         includeVisualRepairFeedback: batchRepair || authorRepairFeedback != null,
-        includeRepairFeedbackInVisualReview: batchRepair,
+        includeRepairFeedbackInVisualReview: automaticBatchRepair,
       },
       buildNumber, controlEpoch, artifacts: parentArtifacts,
     })
@@ -2306,9 +2307,11 @@ async function applyCommand(input: {
       const frozenRequirement = oldPayload.request && typeof oldPayload.request === 'object'
         && !Array.isArray(oldPayload.request) ? oldPayload.request as Record<string, unknown> : null
       if (!frozenRequirement) reject('media-revision-invalid', '目标图片缺少冻结需求合同')
-      if (replacement && (replacement.width !== frozenRequirement.width
-        || replacement.height !== frozenRequirement.height)) {
-        reject('media-revision-invalid', '作者替换图片尺寸必须与冻结媒资需求一致')
+      if (replacement && !isProductImageDeliveryDimensionCompatibleV1({
+        requestedWidth: Number(frozenRequirement.width), requestedHeight: Number(frozenRequirement.height),
+        actualWidth: replacement.width, actualHeight: replacement.height,
+      })) {
+        reject('media-revision-invalid', '替换图片必须满足冻结媒资的画幅比例与最低分辨率')
       }
       const nextLocked = revisionAction === 'lock'
         ? true

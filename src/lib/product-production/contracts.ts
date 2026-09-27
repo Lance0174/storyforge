@@ -765,7 +765,17 @@ export function parseProductProductionCommandV1(value: unknown): ProductProducti
   if (type === 'revise-media-assets') {
     const commandId = commandHeader(row, type, [
       'expectedStateRevision', 'buildNumber', 'action', 'targets',
+      ...(Object.prototype.hasOwnProperty.call(row, 'authorReview') ? ['authorReview'] : []),
     ])
+    let authorReview: Extract<ProductProductionCommandV1, { type: 'revise-media-assets' }>['authorReview']
+    if (row.authorReview != null) {
+      const review = record(row.authorReview, 'authorReview')
+      exactKeys(review, ['sourceGateReceiptHash', 'sourceEvidenceHash'], 'authorReview')
+      if (!isSha256Hash(review.sourceGateReceiptHash) || !isSha256Hash(review.sourceEvidenceHash)) {
+        fail('authorReview hash 无效')
+      }
+      authorReview = { sourceGateReceiptHash: review.sourceGateReceiptHash, sourceEvidenceHash: review.sourceEvidenceHash }
+    }
     if (row.action !== 'regenerate' || !Array.isArray(row.targets)
       || row.targets.length < 1 || row.targets.length > 24) {
       fail('批量媒资修订只允许 1–24 个 regenerate 目标')
@@ -785,6 +795,7 @@ export function parseProductProductionCommandV1(value: unknown): ProductProducti
     return {
       type, commandId, expectedStateRevision: expectedRevision(row.expectedStateRevision),
       buildNumber: positiveId(row.buildNumber, 'buildNumber'), action: 'regenerate', targets,
+      ...(authorReview ? { authorReview } : {}),
     }
   }
   if (type === 'publish') {
