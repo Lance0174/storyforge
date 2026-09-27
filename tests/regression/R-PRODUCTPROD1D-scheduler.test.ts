@@ -2056,6 +2056,20 @@ describe('R-PRODUCTPROD-1D · durable bounded DAG scheduler', () => {
     expect(invalidated).not.toContain('content.dialogue-pass.act-3')
   })
 
+  it('图片审查汇总结论修复只重算汇总和运行包，不重发图片或模型审查', async () => {
+    const f = await textAdventureQualityRecoveryFixture('visual-severity-reassembly')
+    const invalidated = await recoveryInvalidatedTaskKeys({
+      buildId: f.build.id!, previousControlEpoch: f.build.controlEpoch, plan: f.recoveryPlan,
+      failureJson: JSON.stringify({ blockerKey: 'integration.package', resolution: { action: 'retry' },
+        previousFailure: { taskKey: 'integration.package', code: 'task-executor-failed', attempt: 1,
+          detail: '商业候选的独立图片审查未通过:revision-required' } }),
+    })
+    expect(invalidated).toContain('media.visual-quality-review')
+    expect(invalidated).toContain('integration.package')
+    expect([...invalidated].some(key => /^media\.visual\.\d|^media\.visual-quality-review\.batch/.test(key))).toBe(false)
+    expect(invalidated).not.toContain('content.narrative')
+  })
+
   it('叙事集成点名不兼容对白工件时只重跑对应幕 Dialogue Pass', async () => {
     const f = await textAdventureQualityRecoveryFixture('integration-dialogue-owner')
     const invalidated = await recoveryInvalidatedTaskKeys({

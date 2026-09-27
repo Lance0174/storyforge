@@ -1708,13 +1708,17 @@ export default function ProductProductionStudio(props: {
     && ['preview-ready', 'release-ready', 'released'].includes(details.build.status)
     && progress != null && !progress.terminal
   const canPause = details && ['producing', 'preview-ready'].includes(details.production.status)
-    && details.build && !['released', 'cancelled', 'failed', 'archived', 'paused', 'recovery-required'].includes(details.build.status)
+    && details.build && !['released', 'cancelled', 'failed', 'archived', 'paused'].includes(details.build.status)
   const canRepairVisualContract = !!details && canRepairTextAdventureVisualContractV1(details)
   const canRepairRuntimeCopy = !!details && canRepairTextAdventureRuntimeCopyV1(details)
   const canRetryBlocker = details?.production.status === 'producing'
     && canRetryProductProductionBlockerV1(details)
     && (!canRepairVisualContract || !!details.build
-      && readProductProductionRecoveryTaskKeyV1(details.build.failureJson) === 'media.requirements')
+      && (readProductProductionRecoveryTaskKeyV1(details.build.failureJson) === 'media.requirements'
+        || readProductProductionRecoveryTaskKeyV1(details.build.failureJson) === 'integration.package'
+        || readProductProductionRecoveryTaskKeyV1(details.build.failureJson)?.startsWith('media.visual-quality-review')
+        || JSON.parse(details.build.planJson).tasks.some((task: { taskKey: string; executionMode: string }) =>
+          task.taskKey === readProductProductionRecoveryTaskKeyV1(details.build!.failureJson) && task.executionMode === 'human-import')))
   const canUpgradeExecutionPlan = !!details && canUpgradeTextAdventureProductionPlanV1(details)
   const sourceDecisionBlocker = !!details && isTextAdventureSourceDecisionBlockerV1(details)
   const sourceDecision = useMemo(
@@ -1869,7 +1873,8 @@ export default function ProductProductionStudio(props: {
   )
   const canUploadMediaReplacement = details?.production.status === 'preview-ready'
     || details?.production.status === 'producing' && details.build?.status === 'recovery-required'
-      && blockerTaskKey === 'integration.package' && visualReviewStatus === 'revision-required'
+      && blockerTaskKey === 'integration.package'
+      && (visualReviewStatus === 'revision-required' || visualReviewStatus === 'human-review-required')
   const mediaAuditPassed = !!mediaAuditArtifact?.payload && typeof mediaAuditArtifact.payload === 'object'
     && !Array.isArray(mediaAuditArtifact.payload)
     && (mediaAuditArtifact.payload as Record<string, unknown>).passed === true
@@ -2159,17 +2164,17 @@ export default function ProductProductionStudio(props: {
           <p className="mt-3 text-[10px] leading-5 text-text-muted">需要修改时，在下方“继续演化下一版”描述局部目标并只勾选受影响泳道；依赖 hash 未变化的工件会保留，旧 Build 与存档不会被覆盖。</p>
         </section>}
         {details?.production.productType === 'text-adventure' && details.production.status === 'paused'
-          && details.build?.resumeState === 'building' && details.build.releasedProductReleaseId == null
+          && details.build && ['building', 'recovery-required'].includes(details.build.resumeState ?? '') && details.build.releasedProductReleaseId == null
           && <section className="mt-5 rounded border border-border bg-bg-elevated p-5" data-testid="text-adventure-content-revision">
             <h2 className="text-sm font-semibold">修订故事、任务与正文</h2>
             <p className="mt-2 text-xs text-text-muted">保留原稿，只重新生成依赖本次修改的内容。新稿仍须通过原有规则校验。</p>
-            {!contentRevision && <div className="mt-3 flex flex-wrap gap-2">{(['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan', 'content.main-quest-plan', 'content.adventure-side-quests', 'content.adventure-ambient-events', 'content.scene-script.act-1.part-1', 'content.scene-script.act-1.part-2', 'content.scene-script.act-2.part-1', 'content.scene-script.act-2.part-2', 'content.scene-script.act-3.part-1', 'content.scene-script.act-3.part-2', 'content.dialogue-pass.act-1', 'content.dialogue-pass.act-2', 'content.dialogue-pass.act-3'] as const).map(artifactKey =>
+            {!contentRevision && <div className="mt-3 flex flex-wrap gap-2">{(['content.product-module', 'content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan', 'content.main-quest-plan', 'content.adventure-side-quests', 'content.adventure-ambient-events', 'content.scene-script.act-1.part-1', 'content.scene-script.act-1.part-2', 'content.scene-script.act-2.part-1', 'content.scene-script.act-2.part-2', 'content.scene-script.act-3.part-1', 'content.scene-script.act-3.part-2', 'content.dialogue-pass.act-1', 'content.dialogue-pass.act-2', 'content.dialogue-pass.act-3'] as const).filter(artifactKey => details.build?.resumeState === 'building' || artifactKey === 'content.product-module').map(artifactKey =>
               <button key={artifactKey} disabled={busy || productionRunning || !reviewArtifacts.some(row => row.artifactKey === artifactKey)}
                 onClick={() => {
                   const original = reviewArtifacts.filter(row => row.artifactKey === artifactKey).sort((a, b) => b.version - a.version)[0]
                   if (original) setContentRevision({ artifactKey, expectedArtifactVersion: original.version,
                     expectedArtifactHash: original.contentHash, authorDraftJson: JSON.stringify(original.payload, null, 2), note: '' })
-                }} className="rounded border border-border px-3 py-2 text-xs disabled:opacity-40">{{ 'content.story-bible': '载入故事圣经', 'content.cast-bible': '载入角色圣经', 'content.adventure-architecture': '载入地点架构', 'content.narrative-arc-scenes': '载入三幕场景计划', 'content.narrative-decision-plan': '载入玩家决定', 'content.ending-route-plan': '载入结局路线', 'content.main-quest-plan': '载入主线任务', 'content.adventure-side-quests': '载入支线任务', 'content.adventure-ambient-events': '载入区域事件', 'content.scene-script.act-1.part-1': '载入第1幕正文1', 'content.scene-script.act-1.part-2': '载入第1幕正文2', 'content.scene-script.act-2.part-1': '载入第2幕正文1', 'content.scene-script.act-2.part-2': '载入第2幕正文2', 'content.scene-script.act-3.part-1': '载入第3幕正文1', 'content.scene-script.act-3.part-2': '载入第3幕正文2', 'content.dialogue-pass.act-1': '载入第1幕对白审校', 'content.dialogue-pass.act-2': '载入第2幕对白审校', 'content.dialogue-pass.act-3': '载入第3幕对白审校' }[artifactKey]}</button>
+                }} className="rounded border border-border px-3 py-2 text-xs disabled:opacity-40">{{ 'content.product-module': '修订时间上限', 'content.story-bible': '载入故事圣经', 'content.cast-bible': '载入角色圣经', 'content.adventure-architecture': '载入地点架构', 'content.narrative-arc-scenes': '载入三幕场景计划', 'content.narrative-decision-plan': '载入玩家决定', 'content.ending-route-plan': '载入结局路线', 'content.main-quest-plan': '载入主线任务', 'content.adventure-side-quests': '载入支线任务', 'content.adventure-ambient-events': '载入区域事件', 'content.scene-script.act-1.part-1': '载入第1幕正文1', 'content.scene-script.act-1.part-2': '载入第1幕正文2', 'content.scene-script.act-2.part-1': '载入第2幕正文1', 'content.scene-script.act-2.part-2': '载入第2幕正文2', 'content.scene-script.act-3.part-1': '载入第3幕正文1', 'content.scene-script.act-3.part-2': '载入第3幕正文2', 'content.dialogue-pass.act-1': '载入第1幕对白审校', 'content.dialogue-pass.act-2': '载入第2幕对白审校', 'content.dialogue-pass.act-3': '载入第3幕对白审校' }[artifactKey]}</button>
             )}</div>}
             {contentRevision && <>
               <label className="mt-3 grid gap-2 text-xs">修改说明<textarea aria-label="内容修订说明" value={contentRevision.note} maxLength={2000}

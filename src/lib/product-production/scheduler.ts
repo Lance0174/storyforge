@@ -1,3 +1,5 @@
+import { verifiedHumanImportCarryProofsV1 } from './text-adventure-artifact-store'
+import { isTextAdventureClockCapacityRevisionV1 } from './clock-capacity-revision'
 import { db } from '../db/schema'
 import { createAgentSkillExecutionBindingV1 } from '../agent/execution-binding'
 import { getAgentSkillV1 } from '../agent/skill-registry'
@@ -2065,8 +2067,17 @@ export async function executionBindingDriftInvalidatedTaskKeysV1(input: {
     if (task.kind === 'text-adventure-quality-review-batch') return []
     return latestEpoch == null ? [] : historical.filter(row => row.controlEpoch === latestEpoch)
   })
+  const importProofs = await verifiedHumanImportCarryProofsV1({
+    scope: input.scope, buildId: input.buildId, fromControlEpoch: input.previousControlEpoch,
+    artifactKeys: providerTasks.flatMap(task => task.outputArtifactKeys),
+  })
   const seeds = new Set<string>()
   for (const task of providerTasks) {
+    // Explicit imported bytes do not acquire an AI producer when copied into
+    // a later media plan. Their signed zero-provider carry is the authority.
+    if (task.kind === 'image-asset' && task.outputArtifactKeys.every(key => sourceArtifactRows.some(row =>
+      row.artifactKey === key && row.id != null && importProofs.get(row.id) === canonicalProductProductionJsonV2(row)))) continue
+
     const candidates = rows.filter(row => {
       if (row.parentRunId == null || row.parentRelation !== `task:${task.taskKey}`
         || !isSha256Hash(row.terminalReceiptHash ?? '')) return false
@@ -2246,7 +2257,7 @@ async function ensurePlan(input: {
           controlEpoch: state.build.controlEpoch,
           tasks: currentMediaRevisionPlan.tasks.map(task => {
             const refreshed = refreshedBaseTaskByKey.get(task.taskKey)
-            return refreshed ? {
+            return refreshed && task.executionMode !== 'human-import' ? {
               ...task,
               budgetReservation: refreshed.budgetReservation,
               maxAttempts: refreshed.maxAttempts,
@@ -2427,6 +2438,18 @@ async function ensurePlan(input: {
         const previous = previousTasks.get(task.taskKey)
         const carriesExplicitAuthorDecision = task.taskKey === 'source.author-gate'
           || task.taskKey === 'media.anchor-author-gate'
+        const clockCapacityRevision = task.taskKey === 'content.product-module'
+          && parsedObject(state.build.failureJson).code === 'author-revised-content'
+          && parsedObject(state.build.failureJson).blockerKey === task.taskKey
+          && invalidatedTaskKeys.has(task.taskKey)
+          && !invalidatedTaskKeys.has('content.narrative-arc-scenes')
+        // The verified capacity-only change cannot stale prose, art or authored costs.
+        // Re-execute the systems parser and runtime assembly while preserving their other inputs.
+        if (clockCapacityRevision && previous && productProductionTaskReuseSemanticsEqualV1(previous, task)
+          && task.dependsOn.every(dependency => coherentTasks.has(dependency))) {
+          coherentTasks.add(task.taskKey)
+          continue
+        }
         const coherent = !invalidatedTaskKeys.has(task.taskKey) && previous != null
           && productProductionTaskReuseSemanticsEqualV1(previous, task)
           && task.dependsOn.every(dependency => coherentTasks.has(dependency))
@@ -3454,8 +3477,16 @@ export async function recoveryInvalidatedTaskKeys(input: {
     && !Array.isArray(recovery.resolution)
     ? recovery.resolution as Record<string, unknown> : null
   if (recovery.code === 'author-revised-content' && typeof recovery.blockerKey === 'string'
-    && ['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan', 'content.main-quest-plan', 'content.adventure-side-quests', 'content.adventure-ambient-events', 'content.scene-script.act-1.part-1', 'content.scene-script.act-1.part-2', 'content.scene-script.act-2.part-1', 'content.scene-script.act-2.part-2', 'content.scene-script.act-3.part-1', 'content.scene-script.act-3.part-2', 'content.dialogue-pass.act-1', 'content.dialogue-pass.act-2', 'content.dialogue-pass.act-3'].includes(recovery.blockerKey)
+    && ['content.product-module', 'content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan', 'content.main-quest-plan', 'content.adventure-side-quests', 'content.adventure-ambient-events', 'content.scene-script.act-1.part-1', 'content.scene-script.act-1.part-2', 'content.scene-script.act-2.part-1', 'content.scene-script.act-2.part-2', 'content.scene-script.act-3.part-1', 'content.scene-script.act-3.part-2', 'content.dialogue-pass.act-1', 'content.dialogue-pass.act-2', 'content.dialogue-pass.act-3'].includes(recovery.blockerKey)
     && recoveryResolution?.action === 'author-edit') {
+    if (recovery.blockerKey === 'content.product-module') {
+      const source = recovery.revisionSource as { version?: number; contentHash?: string } | undefined
+      const baseline = (await db.productBuildArtifacts.where('buildId').equals(input.buildId).toArray())
+        .find(row => row.artifactKey === recovery.blockerKey && row.version === source?.version && row.contentHash === source?.contentHash)
+      if (!baseline || !isTextAdventureClockCapacityRevisionV1(JSON.parse(baseline.payloadJson),
+        JSON.parse(String(recoveryResolution.authorDraftJson)))) throw new Error('时间上限修订证据无效')
+      return new Set([recovery.blockerKey, ...expandProductProductionInvalidatedTaskClosureV1(input.plan, ['integration.package'])])
+    }
     return expandProductProductionInvalidatedTaskClosureV1(input.plan, [recovery.blockerKey])
   }
   const previousFailure = recovery.previousFailure && typeof recovery.previousFailure === 'object'
@@ -3608,7 +3639,9 @@ export async function recoveryInvalidatedTaskKeys(input: {
     ]
   }
   const expandFailureOwnerTaskKeys = (taskKey: string) => (
-    taskKey === 'integration.narrative'
+    taskKey === 'integration.package' && directlyResolvedFailureDetail.includes('独立图片审查未通过')
+      ? ['media.visual-quality-review', 'integration.package']
+      : taskKey === 'integration.narrative'
       ? exactFailedDialoguePassTaskKey
         ? [exactFailedDialoguePassTaskKey]
         : narrativeIntegrationOwnerTaskKeys

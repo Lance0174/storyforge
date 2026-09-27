@@ -37,6 +37,7 @@ import {
   TEXT_ADVENTURE_QUALITY_REVIEW_TIMEOUT_MS_V1,
 } from './plan'
 import { readMediaBlobObjectData } from './media-blob-store'
+import { isTextAdventureClockCapacityRevisionV1 } from './clock-capacity-revision'
 import { isProductImageDeliveryDimensionCompatibleV1 } from './media-adapters'
 import { parseTextAdventureQualityReviewArtifactV1 } from '../adventure/production-artifacts'
 import {
@@ -1528,13 +1529,15 @@ async function applyCommand(input: {
     }
     const contentRevision = command.contentRevision
     if (contentRevision) {
-      if (production.productType !== 'text-adventure' || build.resumeState !== 'building'
+      if (production.productType !== 'text-adventure' || (build.resumeState !== 'building'
+          && !(build.resumeState === 'recovery-required' && contentRevision.artifactKey === 'content.product-module'))
         || build.releasedProductReleaseId != null) {
         reject('invalid-state-transition', '内容修订只允许尚在构建的未发布文字冒险暂停态')
       }
       const plan = parseProductProductionPlanV3(build.planJson)
       const task = plan.tasks.find(task => task.taskKey === contentRevision.artifactKey)
       if (plan.productType !== 'text-adventure' || task?.skillId !== ({
+        'content.product-module': 'text-adventure.production-systems.v1',
         'content.story-bible': 'text-adventure.story-bible.v1',
         'content.cast-bible': 'text-adventure.cast-bible.v1',
         'content.adventure-architecture': 'text-adventure.production-architecture.v1',
@@ -1567,6 +1570,10 @@ async function applyCommand(input: {
         || baseline.contentHash !== contentRevision.expectedArtifactHash || !baseline.producerReceiptHash
         || !/^[a-f0-9]{64}$/.test(baseline.producerReceiptHash)) {
         reject('source-stale', '内容原稿已变化或缺少已验收证据，请重新读取')
+      }
+      if (contentRevision.artifactKey === 'content.product-module'
+        && !isTextAdventureClockCapacityRevisionV1(JSON.parse(baseline.payloadJson), JSON.parse(contentRevision.authorDraftJson))) {
+        reject('invalid-state-transition', '时间上限修订只允许提高 clock.maximum，其他系统语义必须保持不变')
       }
     }
     let budgetLedgerJson = build.budgetLedgerJson
@@ -1682,7 +1689,7 @@ async function applyCommand(input: {
     } else if (command.pausedReservationDispositions) {
       reject('invalid-state-transition', '普通暂停没有待处置 provider reservation')
     }
-    const restored = build.resumeState
+    const restored = contentRevision ? 'building' : build.resumeState
     const controlEpoch = production.controlEpoch + 1
     const stateRevision = production.stateRevision + 1
     const pausedFailure = readResult(build.failureJson)

@@ -97,3 +97,9 @@ WorldRelease + Confirmed Brief + Frozen SourcePlan
 ## 6. 可观察性
 
 生产事件至少包含 `planned/ready/running/progress/candidate/validating/awaiting-author/accepted/stale/paused/failed/completed`。进度不是虚构百分比：每个阶段按已冻结子任务和权重计算，并显示事实，如“场景正文 4/12 完成”“角色锚点 2/5 已审”。刷新后从 durable ledger 恢复同一状态。
+
+### 累计时间容量修订
+
+在未发布 Build 的暂停态，可通过同一内容修订命令提高系统稿的 `clock.maximum`。命令绑定原稿版本、hash 和正式回执，只允许提高这一数值；初值、下限、资源 key、行动成本及其他字段变化均拒绝。系统稿仍经正式 parser 采纳；正文、任务文本和媒资保留，确定性运行包装配、自动试玩与发布质检重新执行。它修正累计分钟数的容量，不改变剧情中的行动代价或代替截止时间规则。
+
+作者上传图片的 producer 指针保持为空；跨 epoch 复用必须验证对应任务、epoch、候选 hash 与已完成的零模型调用 carried Run 回执。读取到的完整工件还须在写入事务内保持一致。此类明确导入的字节不因后续图片 Provider 绑定变化而重新生成；缺失或篡改证明仍拒绝复用。

@@ -1,3 +1,4 @@
+import { hasFrozenAuthorUploadRightsV1 } from './media-rights'
 import { TTRPG_SCENARIO_PROMPT_V1 } from '../ttrpg/scenario-prompt'
 import { parseTtrpgAuthoredScenarioV1, type TtrpgAuthoredScenarioV1 } from '../ttrpg/scenario-authoring'
 import type { ChatResult } from '../ai/client'
@@ -9373,8 +9374,11 @@ export function normalizeTextAdventureVisualReviewPolicyV1(input: {
       downgradedMicrodetail = true
       return { ...issue, severity: 'warning' as const }
     })
-    if (!downgradedMicrodetail && !promotedGlyphViolation) return review
     const hasBlockingIssue = issues.some(issue => issue.severity === 'blocking')
+    const warningOnlyRevision = review.reviewSource === 'multimodal-model'
+      && review.scores !== null && review.verdict === 'revise'
+      && issues.length > 0 && !hasBlockingIssue
+    if (!downgradedMicrodetail && !promotedGlyphViolation && !warningOnlyRevision) return review
     return {
       ...review,
       issues,
@@ -9559,7 +9563,8 @@ async function executeTextAdventureVisualQualityReviewTask(
       return {
         artifactKey: image.artifactKey, contentHash: image.contentHash,
         mediaKind: requirement.mediaKind, sceneTag: requirement.sceneTag,
-        prompt: requirement.prompt, altText: requirement.altText,
+        prompt: glyphSafeTextAdventureProviderPromptV1(requirement.prompt),
+        altText: glyphSafeTextAdventureProviderPromptV1(requirement.altText),
         requestedSize: [requirement.width, requirement.height],
         characterAnchorRefs: requirement.characterAnchorRefs,
         hardConstraints: requirement.hardConstraints,
@@ -9577,7 +9582,7 @@ async function executeTextAdventureVisualQualityReviewTask(
       '你必须实际观察随请求附带的每张图片，并依据登记上下文逐项检查：需求匹配、角色身份连续、整体风格连续、构图可读性、明显畸形或伪影、文字水印、剧情剧透和替代文本。' +
       '不得修改图片、世界事实、视觉圣经、权利或发布状态；不确定时使用 human-review。' +
       '无文字约束禁止实际字母、数字、可读字词、伪文字、符文与签名，不禁止无标签的几何示意图、机械结构图或电路连线；不能仅因图形有可理解的工程含义就判作文字。若确实观察到字形，请指出其所在位置和具体形态，不要把约束原句当成像素证据。' +
-      '当来源道具包含名册、名牌或缝名，但同图合同明确禁字时，应接受保留该物件且用空白、磨损或抽象缝线呈现的无字方案；不得要求补回姓名或伪字来满足道具身份。' +
+      '当来源道具包含名册、名牌或缝名，但同图合同明确禁字时，应接受保留该物件且用空白、磨损或抽象缝线呈现的无字方案；不得要求补回姓名或伪字来满足道具身份。写满人名的笔记可以合拢，封面必须空白；内容存在于未展示的内页，不得因封面没有人名而扣分或要求返修。被划掉的名牌以空白磨损表面呈现即合规，不需要人工另行确认禁字规则。' +
       '输出只能是一个 JSON 对象，字段精确为：' +
       '{"schema":"storyforge.text-adventure-visual-quality-model-output","version":1,"reviews":[{' +
       '"artifactKey":"media.visual.001","contentHash":"64位hash","verdict":"accept|revise|replace|human-review",' +
@@ -9671,7 +9676,9 @@ function executeTextAdventureVisualQualityReviewAssemblyTask(
   })
   const report = assembleTextAdventureVisualQualityReviewArtifactV1({
     buildNumber: input.buildNumber, mediaAuditHash: mediaAuditArtifact.contentHash,
-    reviews,
+    // Keep original batch evidence immutable; the deterministic aggregate applies
+    // the same severity policy as newly completed model reviews.
+    reviews: normalizeTextAdventureVisualReviewPolicyV1({ reviews, requirements: [] }),
     expectedAssets: mediaAudit.assets.map(asset => ({
       artifactKey: asset.artifactKey, contentHash: asset.contentHash,
     })),
@@ -10173,7 +10180,11 @@ async function executeIntegrationTask(input: ProductProductionTaskExecutionInput
     artifacts: [...ttrpgArtifacts, {
       artifactKey: 'runtime.package', kind: 'presentation', payload: parsed,
       quality: { parser: 'parseProductRuntimePackageV1', graphValidated: true },
-      rights: { mediaLicenses: assets.map(asset => ({ assetKey: asset.assetKey, license: asset.license })) },
+      rights: { mediaLicenses: media.map(({ asset }) => ({
+        assetKey: asset.assetKey, contentHash: asset.contentHash, source: asset.source, license: asset.license,
+        declaration: JSON.parse(input.inputArtifacts.find(row => row.contentHash === asset.contentHash
+          && row.blobObjectId != null && JSON.parse(row.metadataJson).assetKey === asset.assetKey)!.rightsJson),
+      })) },
     }],
     passedGateIds: [...input.task.acceptanceGateIds],
     usage: zeroUsage(elapsed(startedAt)),
@@ -10219,9 +10230,11 @@ async function executeQualityTask(input: ProductProductionTaskExecutionInputV1, 
   const coveredKinds = new Set(assets.map(asset => asset.kind).filter(kind => requiredKinds.has(kind)))
   const mediaCoverage = requiredKinds.size === 0 ? 1 : coveredKinds.size / requiredKinds.size
   const productQuality = evaluateProductRuntimeProductQualityV1({ runtimePackage, brief: options.brief })
+  const frozenPackageRights = JSON.parse(artifactRecord(input, 'runtime.package').rightsJson)
   const commercialMediaValid = options.brief.qualityProfile !== 'commercial-candidate' || assets.every(asset => (
     asset.source === 'storyforge-deterministic-region-map-v1' && asset.license === 'CC0-1.0'
-    || !asset.source.startsWith('storyforge-procedural-') && asset.license.startsWith('rights-policy:')
+    || asset.source !== 'author-upload' && !asset.source.startsWith('storyforge-procedural-') && asset.license.startsWith('rights-policy:')
+    || hasFrozenAuthorUploadRightsV1(asset, frozenPackageRights)
   ))
   const commercialAdapterValid = options.brief.qualityProfile !== 'commercial-candidate'
     || runtimePackage.definition.initialVariables.productAdapterCommercialReady === true

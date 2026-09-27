@@ -1825,6 +1825,22 @@ describe('R-PRODUCTPROD-1F · provider JSON response normalization', () => {
     expect(portrait).toMatchObject({ verdict: 'accept', issues: [{ severity: 'warning' }] })
   })
 
+  it('纯建议不能与必须返修结论矛盾，真实阻塞与人工复核仍保留', () => {
+    const base = {
+      artifactKey: 'media.visual.008', contentHash: 'b'.repeat(64), verdict: 'revise' as const,
+      scores: { requirementFit: 4, identityContinuity: 4, styleContinuity: 4, composition: 5, technicalCleanliness: 5 },
+      issues: [{ severity: 'warning' as const, category: 'identity' as const,
+        detail: '护腕可进一步简化。', recommendation: '可简化铜扣。' }],
+      reviewSource: 'multimodal-model' as const,
+    }
+    const normalize = (review: Parameters<typeof normalizeTextAdventureVisualReviewPolicyV1>[0]['reviews'][number]) =>
+      normalizeTextAdventureVisualReviewPolicyV1({ reviews: [review], requirements: [] })[0]
+    expect(normalize(base)).toMatchObject({ verdict: 'accept', issues: base.issues })
+    expect(normalize({ ...base, issues: [{ ...base.issues[0], severity: 'blocking' }] }).verdict).toBe('revise')
+    expect(normalize({ ...base, verdict: 'human-review' }).verdict).toBe('human-review')
+    expect(normalize({ ...base, reviewSource: 'deterministic-fallback', scores: null }).verdict).toBe('revise')
+  })
+
   it('审图模型把可读文字误标为 warning 时，确定性策略仍升级为阻塞返修', () => {
     const [review] = normalizeTextAdventureVisualReviewPolicyV1({
       reviews: [{
@@ -4719,7 +4735,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     ])
   }, 30_000)
 
-  it.each(['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan', 'content.main-quest-plan', 'content.adventure-side-quests', 'content.adventure-ambient-events', 'content.scene-script.act-1.part-1', 'content.scene-script.act-1.part-2', 'content.scene-script.act-2.part-1', 'content.scene-script.act-2.part-2', 'content.scene-script.act-3.part-1', 'content.scene-script.act-3.part-2', 'content.dialogue-pass.act-1', 'content.dialogue-pass.act-2', 'content.dialogue-pass.act-3'] as const)('%s 暂停后修订已验收内容：绑定命令与原稿，只使后代失效，作者正文零模型采纳', async (revisionKey) => {
+  it.each(['content.product-module', 'content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan', 'content.main-quest-plan', 'content.adventure-side-quests', 'content.adventure-ambient-events', 'content.scene-script.act-1.part-1', 'content.scene-script.act-1.part-2', 'content.scene-script.act-2.part-1', 'content.scene-script.act-2.part-2', 'content.scene-script.act-3.part-1', 'content.scene-script.act-3.part-2', 'content.dialogue-pass.act-1', 'content.dialogue-pass.act-2', 'content.dialogue-pass.act-3'] as const)('%s 暂停后修订已验收内容：绑定命令与原稿，只使后代失效，作者正文零模型采纳', async (revisionKey) => {
     const owned = await fixtureForProduct('text-adventure', { scale: 'short-arc', visualLevel: 'none', omitWorldArtifacts: true })
     const requirement = owned.brief.capabilityRequirements.find(item => item.mediaClass === 'text')!
     const bindingHash = 'a'.repeat(64)
@@ -4730,7 +4746,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     const runText: ProductionTextRunnerV1 = async request => {
       const key = Object.keys(outputs).find(key => request.system.includes(`任务=${key}。`))!
       calls.push(key)
-      if (key === ({ 'content.story-bible': 'content.cast-bible', 'content.cast-bible': 'content.adventure-architecture', 'content.adventure-architecture': 'content.narrative-arc-scenes', 'content.narrative-arc-scenes': 'content.narrative-decision-plan', 'content.narrative-decision-plan': 'content.ending-route-plan', 'content.ending-route-plan': 'content.main-quest-plan', 'content.main-quest-plan': 'content.adventure-side-quests', 'content.adventure-side-quests': 'content.quest-script.main.act-1.single', 'content.adventure-ambient-events': 'content.quest-script.main.act-1.single', 'content.scene-script.act-1.part-1': 'content.adventure-quality-review.act-1', 'content.scene-script.act-1.part-2': 'content.adventure-quality-review.act-1', 'content.scene-script.act-2.part-1': 'content.adventure-quality-review.act-1', 'content.scene-script.act-2.part-2': 'content.adventure-quality-review.act-1', 'content.scene-script.act-3.part-1': 'content.adventure-quality-review.act-1', 'content.scene-script.act-3.part-2': 'content.adventure-quality-review.act-1', 'content.dialogue-pass.act-1': 'content.adventure-quality-review.act-1', 'content.dialogue-pass.act-2': 'content.adventure-quality-review.act-1', 'content.dialogue-pass.act-3': 'content.adventure-quality-review.act-1' }[revisionKey]) && pauseOnce) {
+      if (key === ({ 'content.product-module': 'content.adventure-quality-review.act-1', 'content.story-bible': 'content.cast-bible', 'content.cast-bible': 'content.adventure-architecture', 'content.adventure-architecture': 'content.narrative-arc-scenes', 'content.narrative-arc-scenes': 'content.narrative-decision-plan', 'content.narrative-decision-plan': 'content.ending-route-plan', 'content.ending-route-plan': 'content.main-quest-plan', 'content.main-quest-plan': 'content.adventure-side-quests', 'content.adventure-side-quests': 'content.quest-script.main.act-1.single', 'content.adventure-ambient-events': 'content.quest-script.main.act-1.single', 'content.scene-script.act-1.part-1': 'content.adventure-quality-review.act-1', 'content.scene-script.act-1.part-2': 'content.adventure-quality-review.act-1', 'content.scene-script.act-2.part-1': 'content.adventure-quality-review.act-1', 'content.scene-script.act-2.part-2': 'content.adventure-quality-review.act-1', 'content.scene-script.act-3.part-1': 'content.adventure-quality-review.act-1', 'content.scene-script.act-3.part-2': 'content.adventure-quality-review.act-1', 'content.dialogue-pass.act-1': 'content.adventure-quality-review.act-1', 'content.dialogue-pass.act-2': 'content.adventure-quality-review.act-1', 'content.dialogue-pass.act-3': 'content.adventure-quality-review.act-1' }[revisionKey]) && pauseOnce) {
         pauseOnce = false
         expect((await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId,
           command: { type: 'pause', commandId: 'story-revision.pause',
@@ -4756,7 +4772,8 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     const currentProduction = (await db.productProductions.get(owned.productionId))!
     const failure = JSON.parse((await prepareLegacyPausedProductBuildV1(owned.scope, currentBuild)).failureJson)
     const edited = JSON.parse(baseline.payloadJson)
-    if (revisionKey === 'content.story-bible') edited.emotionalPromise = '在保留真实代价的选择中学会共同承担。'
+    if (revisionKey === 'content.product-module') edited.resources.find((resource: { role: string }) => resource.role === 'clock').maximum += 4320
+    else if (revisionKey === 'content.story-bible') edited.emotionalPromise = '在保留真实代价的选择中学会共同承担。'
     else if (revisionKey === 'content.cast-bible') edited.characters[1].voice = '用简短的句子回应，先询问来意再提出条件。'
     else if (revisionKey === 'content.adventure-architecture') edited.regions[0].description = '潮汐推动的岛群，居民以互助维持航路。'
     else if (revisionKey === 'content.narrative-arc-scenes') edited.acts[0].sceneCards[0].purpose = '先呈现可见风险，再让玩家选择实际行动。'
@@ -4805,7 +4822,12 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     await db.productBuilds.update(first.buildId, { failureJson: JSON.stringify(tampered) })
     await expect(validateProductProductionRecoveryDirectiveV1(verification)).rejects.toThrow('候选已变化')
     await db.productBuilds.update(first.buildId, { failureJson: resumedBuild.failureJson })
+    const beforeResumeCalls = [...calls]
     const completed = await execute()
+    if (revisionKey === 'content.product-module') {
+      expect(calls.filter(key => beforeResumeCalls.includes(key) && !key.startsWith('content.adventure-quality-review') && key !== 'qa.playtest-strategy'))
+        .toEqual(beforeResumeCalls.filter(key => beforeResumeCalls.includes(key) && !key.startsWith('content.adventure-quality-review') && key !== 'qa.playtest-strategy'))
+    }
     expect(completed, JSON.stringify(completed)).toMatchObject({ terminal: true, buildStatus: 'release-ready' })
     expect(calls.filter(key => key === 'content.story-bible')).toHaveLength(1)
     expect(calls.filter(key => key === 'content.source-sufficiency')).toHaveLength(1)

@@ -1,3 +1,4 @@
+import { carryForwardProductBuildArtifactsToEpochV1 } from '../../src/lib/product-production/artifact-store'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { db } from '../../src/lib/db/schema'
 import {
@@ -1894,6 +1895,21 @@ describe('PRODUCTPROD-1B · user command control plane', () => {
       },
     })).resolves.toMatchObject({ ok: false, errorCode: 'media-revision-invalid' })
     expect(await db.productBuilds.where('productionId').equals(f.productionId).count()).toBe(2)
+    await db.productBuilds.update(child!.id!, { status: 'building', controlEpoch: 2 })
+    await db.productBuildArtifacts.update(childTarget.id!, { status: 'invalid' })
+    const recovered = await carryForwardProductBuildArtifactsToEpochV1({
+      scope: f.scope, buildId: child!.id!, fromControlEpoch: 1, toControlEpoch: 2,
+      artifactKeys: [childTarget.artifactKey], allowHistoricalInvalidSourceBeforeEpoch: true,
+    })
+    expect(recovered).toHaveLength(1)
+    expect(recovered[0]).toMatchObject({ contentHash: childTarget.contentHash,
+      producerRunId: null, producerReceiptHash: null, status: 'carried-forward' })
+    await db.productBuildArtifacts.update(childTarget.id!, { contentHash: 'f'.repeat(64) })
+    await db.productBuilds.update(child!.id!, { controlEpoch: 3 })
+    expect(await carryForwardProductBuildArtifactsToEpochV1({
+      scope: f.scope, buildId: child!.id!, fromControlEpoch: 1, toControlEpoch: 3,
+      artifactKeys: [childTarget.artifactKey], allowHistoricalInvalidSourceBeforeEpoch: true,
+    })).toEqual([])
   })
 
   it.each(['preview', 'visual-recovery'] as const)('校验作者上传 Blob 与权利，并从 %s 保存可追溯替换与真实分辨率', async mode => {
