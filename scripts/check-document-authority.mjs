@@ -85,6 +85,7 @@ const activeDocs = [
   'docs/roadmap/MOTION-DRAMA-PLAN-AUDIT.md',
   'docs/roadmap/COMPLETED.md',
   'docs/audits/CURRENT-ARCHITECTURE-AUDIT-20260903.md',
+  'docs/audits/NOVEL-PROMPT-CRAFT-20260927.md',
   'docs/audits/TEXT-OPEN-WORLD-CAPABILITY-AUDIT-20260906.md',
   'docs/ttrpg/licenses/SRD-5.2.1-CC-BY-4.0.md',
 ]

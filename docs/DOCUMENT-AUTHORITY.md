@@ -75,6 +75,7 @@
 - `docs/AI-FUNCTIONS-MANUAL.generated.md`：代码生成，不手改。
 - `docs/AI-FUNCTIONS-MANUAL.semantic.md`：生成清单的人工语义注解。
 - `docs/CONSISTENCY-COVERAGE-MAP.md`：Canon 一致性反例状态。
+- `docs/audits/NOVEL-PROMPT-CRAFT-20260927.md`：小说工坊提示词公开来源比较、原创内容设计与验证记录；不替代产品契约或模型质量认证。
 - `docs/audits/CURRENT-ARCHITECTURE-AUDIT-20260903.md`：当前代码树的项目级架构闭环审计；不替代具体产品方案和质量认证。
 - `docs/roadmap/INDEPENDENT-CREATION-PLAN-AUDIT.md`：三份独立创作专项方案的边界、共享底座和分支隔离审查证据；不替代专项方案。
 - `docs/roadmap/MOTION-DRAMA-PLAN-AUDIT.md`：漫剧前期生产方案对当前行业流程的交叉审查与修订证据。

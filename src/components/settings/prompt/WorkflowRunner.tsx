@@ -325,7 +325,7 @@ export default function WorkflowRunner({ workflow, project, onClose }: RunnerPro
           worldGroupId: wg,
           previousOutput: workflowContext,
           workflowValues: groupWorkflowInputsByVariable(upstreamInputs),
-          userHint: userInputsRef.current.get(step.stepId),
+          userHint: [step.userHint?.trim(), userInputsRef.current.get(step.stepId)?.trim()].filter(Boolean).join('\n'),
           manualValues: step.inputValues,
           parameterValues: step.parameterValues,
         })

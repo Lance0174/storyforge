@@ -9,7 +9,7 @@ import PromptTemplateEditor from './PromptTemplateEditor'
 import PromptWorkflowsPanel from './PromptWorkflowsPanel'
 import { useToast } from '../../shared/Toast'
 
-type ScopeFilter = 'all' | 'system' | 'user'
+type ScopeFilter = 'all' | 'system' | 'user' | 'craft'
 
 interface Props {
   /** 当前项目 — 工作流的「保存到项目」需要 */
@@ -25,6 +25,7 @@ export default function PromptManagerPanel({ project }: Props = {}) {
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('all')
+  const [search, setSearch] = useState('')
   const [genrePack, setGenrePack] = useState<string>(() => {
     try { return localStorage.getItem('sf-genre-pack') || 'general' } catch { return 'general' }
   })
@@ -62,8 +63,11 @@ export default function PromptManagerPanel({ project }: Props = {}) {
 
   // 过滤后的模板
   const filtered = templates.filter(t => {
-    if (scopeFilter === 'all') return true
-    return t.scope === scopeFilter
+    const matchesScope = scopeFilter === 'all'
+      || (scopeFilter === 'craft' ? t.assetId?.startsWith('CRAFT-') : t.scope === scopeFilter)
+    const keywords = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
+    const searchable = `${t.name} ${t.description} ${t.moduleKey} ${t.assetId ?? ''}`.toLocaleLowerCase().replace(/\s+/g, '')
+    return matchesScope && keywords.every(keyword => searchable.includes(keyword))
   })
 
   const selected = selectedId ? templates.find(t => t.id === selectedId) : null
@@ -166,6 +170,8 @@ export default function PromptManagerPanel({ project }: Props = {}) {
           selected={selected}
           selectedId={selectedId}
           setSelectedId={setSelectedId}
+          search={search}
+          setSearch={setSearch}
           scopeFilter={scopeFilter}
           setScopeFilter={setScopeFilter}
           genrePack={genrePack}
@@ -188,6 +194,8 @@ interface TemplatesViewProps {
   selected: PromptTemplate | null | undefined
   selectedId: number | null
   setSelectedId: (id: number | null) => void
+  search: string
+  setSearch: (value: string) => void
   scopeFilter: ScopeFilter
   setScopeFilter: (s: ScopeFilter) => void
   genrePack: string
@@ -201,7 +209,7 @@ interface TemplatesViewProps {
 }
 
 function PromptTemplatesView({
-  filtered, selected, selectedId, setSelectedId, scopeFilter, setScopeFilter,
+  filtered, selected, selectedId, setSelectedId, search, setSearch, scopeFilter, setScopeFilter,
   genrePack, handleGenrePackChange, handleNew, handleImportClick,
   handleExportAll, handleImportFile, fileInputRef, reload,
 }: TemplatesViewProps) {
@@ -227,6 +235,23 @@ function PromptTemplatesView({
         </div>
       </div>
 
+      <div className="px-5 py-3 border-b border-border space-y-2">
+        <input
+          type="search"
+          aria-label="搜索提示词"
+          placeholder="搜索任务、名称或关键词，如：去 AI 味、续写、对白"
+          value={search}
+          onChange={event => setSearch(event.target.value)}
+          className="w-full px-3 py-2 bg-bg-base border border-border rounded text-sm text-text-primary focus:outline-none focus:border-accent"
+        />
+        {scopeFilter === 'craft' && (
+          <p className="text-xs text-text-secondary">
+            从一个写作问题开始：构思 → 人物与大纲 → 正文 → 修稿 → 交接与包装。每条可单独选用。
+            在工作流节点中选中具体模板，填写材料即可；去 AI 味模板也可激活后用于正文工具。
+          </p>
+        )}
+      </div>
+
       {/* 工具栏 */}
       <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-2">
@@ -239,6 +264,7 @@ function PromptTemplatesView({
             <option value="all">全部</option>
             <option value="system">系统内置</option>
             <option value="user">我的</option>
+            <option value="craft">熔炉写作工坊</option>
           </select>
           <span className="ml-3 text-xs text-text-muted">
             共 {filtered.length} 条

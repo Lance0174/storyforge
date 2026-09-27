@@ -73,9 +73,9 @@ export default function WorkflowEditor({
   }
 
   const addStep = () => {
+    const stepId = `s-${nanoid(8)}`
     setDraft(current => {
       const currentGraph = workflowGraphFor(current)
-      const stepId = `s-${nanoid(8)}`
       const rightmost = currentGraph.nodes.reduce(
         (max, node) => Math.max(max, node.x + WORKFLOW_NODE_WIDTH),
         0,
@@ -87,7 +87,6 @@ export default function WorkflowEditor({
         promptModuleKey: 'chapter.content',
         userConfirmRequired: true,
       }
-      setSelectedStepId(stepId)
       return {
         ...current,
         steps: [...current.steps, step],
@@ -104,6 +103,7 @@ export default function WorkflowEditor({
         },
       }
     })
+    setSelectedStepId(stepId)
     setDirty(true)
   }
 
@@ -421,6 +421,7 @@ export default function WorkflowEditor({
               <div>
                 <label className="mb-1 block text-[10px] text-text-muted">Prompt 模块</label>
                 <select
+                  aria-label="Prompt 模块"
                   value={selectedStep.promptModuleKey}
                   onChange={event => updateStepById(selectedStep.stepId, {
                     promptModuleKey: event.target.value as PromptWorkflowStep['promptModuleKey'],
@@ -434,8 +435,26 @@ export default function WorkflowEditor({
                 </select>
               </div>
               <div>
+                <label className="mb-1 block text-[10px] text-text-muted">本节点模板</label>
+                <select
+                  aria-label="本节点模板"
+                  value={selectedStep.templateId ?? ''}
+                  onChange={event => updateStepById(selectedStep.stepId, {
+                    templateId: event.target.value ? Number(event.target.value) : undefined,
+                  })}
+                  className="w-full rounded border border-border bg-bg-base px-2 py-1.5 text-xs text-text-primary focus:border-accent focus:outline-none"
+                >
+                  <option value="">跟随当前激活模板</option>
+                  {templates.filter(item => item.moduleKey === selectedStep.promptModuleKey).map(item => (
+                    <option key={item.id} value={item.id}>{item.name}</option>
+                  ))}
+                </select>
+                {template && <p className="mt-1 text-[10px] text-text-muted">{template.description}</p>}
+              </div>
+              <div>
                 <label className="mb-1 block text-[10px] text-text-muted">给 AI 的提示</label>
                 <textarea
+                  aria-label="给 AI 的提示"
                   value={selectedStep.userHint ?? ''}
                   onChange={event => updateStepById(selectedStep.stepId, { userHint: event.target.value })}
                   rows={3}
@@ -502,7 +521,9 @@ export default function WorkflowEditor({
               {bindings.length > 0 && (
                 <div className="border-t border-border pt-3">
                   <p className="mb-2 text-[10px] text-text-muted">
-                    模板字段会先读取登记项目资料；这里是作者补充，不会覆盖图入边。
+                    {bindings.some(binding => binding.sourceKeys?.length)
+                      ? '模板会读取登记资料；这里可补充本次材料。'
+                      : '填写本次材料，或把上游节点连到对应变量。不会自动读取未声明的作品资料。'}
                   </p>
                   <div className="space-y-2">
                     {bindings.map(binding => (
@@ -511,6 +532,8 @@ export default function WorkflowEditor({
                           {binding.label}{binding.required ? ' *' : ''}
                         </label>
                         <textarea
+                          aria-label={binding.label}
+                          placeholder={binding.placeholder}
                           value={selectedStep.inputValues?.[binding.variable] ?? ''}
                           onChange={event => updateStepById(selectedStep.stepId, {
                             inputValues: {

@@ -40,7 +40,8 @@ export const usePromptStore = create<PromptStore>((set, get) => ({
     const existing = await db.promptTemplates.toArray()
     const now = Date.now()
     const { NOVEL_CONTENT_PROMPT_SEEDS } = await import('../lib/ai/prompt-seeds-novel')
-    const allSystemSeeds = [...SYSTEM_PROMPT_SEEDS, ...NOVEL_CONTENT_PROMPT_SEEDS]
+    const { CRAFT_PROMPT_SEEDS } = await import('../lib/ai/prompt-seeds-craft')
+    const allSystemSeeds = [...SYSTEM_PROMPT_SEEDS, ...NOVEL_CONTENT_PROMPT_SEEDS, ...CRAFT_PROMPT_SEEDS]
 
     if (existing.length === 0) {
       // 全新库：注入全部 seed
