@@ -41,7 +41,9 @@ test('private reply stays hidden, messages persist, checkpoints and branches rem
     await page.goto(`./chat/play?${query}`);
     await page.getByPlaceholder('对当前场景中的角色说话…').fill('浏览器玩家消息');
     await page.getByRole('button', { name: '仅保存消息', exact: true }).click();
+    // Wait for the persisted message and cleared composer before reloading.
     await expect(page.getByRole('paragraph').filter({ hasText: /^浏览器玩家消息$/ })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByPlaceholder('对当前场景中的角色说话…')).toHaveValue('');
     await expect(page.getByRole('button', { name: '仅保存消息', exact: true })).toBeDisabled();
     await page.reload();
     await expect(page.getByRole('paragraph').filter({ hasText: /^浏览器玩家消息$/ })).toBeVisible({ timeout: 15000 });

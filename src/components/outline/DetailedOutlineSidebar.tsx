@@ -24,7 +24,7 @@ export default function DetailedOutlineSidebar({
   const detailedNodeIds = new Set(detailedOutlines.map(detail => detail.outlineNodeId))
 
   return (
-    <div className="w-64 flex-shrink-0 border-r border-border overflow-y-auto p-3">
+    <div className="w-full max-h-44 md:max-h-none md:w-64 flex-shrink-0 border-b md:border-b-0 md:border-r border-border overflow-y-auto p-3">
       <h3 className="text-sm font-semibold text-text-primary mb-2 px-2">📖 选择章节</h3>
       {chapters.length === 0 ? (
         <div className="text-xs text-text-muted px-2 py-4">还没有章节节点。先去「大纲」里建几章。</div>

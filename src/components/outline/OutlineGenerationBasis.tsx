@@ -48,6 +48,7 @@ export default function OutlineGenerationBasis({
   const storyCore = contextExcerpt(context, 'storyCore')
   const storyArcs = contextExcerpt(context, 'storyArcs')
   const existingVolumes = contextExcerpt(context, 'existingVolumeOutlines')
+  const selectedFields = context.included.includes('ragSelection')
 
   return (
     <div className="space-y-2 text-xs" data-testid="outline-generation-basis">
@@ -72,9 +73,15 @@ export default function OutlineGenerationBasis({
         <p className="leading-5 text-text-secondary"><span className="text-text-muted">故事核心：</span>{storyCore}</p>
       ) : storyArcs ? (
         <p className="leading-5 text-text-secondary"><span className="text-text-muted">已确认故事线：</span>{storyArcs}</p>
+      ) : selectedFields ? (
+        <p className="leading-5 text-text-secondary">本次按需读取已确认的资料字段，可展开核对实际内容。</p>
       ) : (
-        <p className="leading-5 text-warning">未填写故事核心或故事线，AI 将主要依据世界观、角色、已有大纲与额外要求生成。</p>
+        <p className="leading-5 text-warning">本次未读取故事核心或故事线，将依据上方资料与补充要求生成；这不代表作品中没有这些内容。</p>
       )}
+      {selectedFields && <details className="rounded border border-border p-2">
+        <summary className="cursor-pointer">查看本次读取的资料</summary>
+        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs leading-5">{context.text}</pre>
+      </details>}
       {existingVolumes && (
         <p className="leading-5 text-text-secondary"><span className="text-text-muted">已有卷纲：</span>{existingVolumes}</p>
       )}

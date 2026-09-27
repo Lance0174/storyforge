@@ -356,7 +356,7 @@ function SceneItem({ scene, index }: { scene: any; index: number }) {
             <span className="text-xs font-medium text-text-primary truncate">{scene.title}</span>
             {scene.pace && (
               <span className={`text-[10px] px-1.5 py-0.5 rounded ${paceColor}`}>
-                {scene.pace === 'fast' ? '快' : scene.pace === 'slow' ? '慢' : '中'}
+                {scene.pace === 'climax' ? '高潮' : scene.pace === 'fast' ? '快' : scene.pace === 'slow' ? '慢' : '中'}
               </span>
             )}
           </div>

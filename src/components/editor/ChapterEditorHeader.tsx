@@ -49,9 +49,9 @@ export default function ChapterEditorHeader({
   onSave,
 }: Props) {
   return (
-    <div className="flex items-center justify-between px-6 py-3">
-      <div className="flex items-center gap-3">
-        <div>
+    <div className="flex flex-wrap items-center justify-between gap-3 px-3 sm:px-6 py-3">
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
+        <div className="min-w-0 basis-full sm:basis-auto">
           <p className="text-[11px] uppercase tracking-[0.18em] text-text-muted">
             创作区 · 正文
           </p>
@@ -72,7 +72,7 @@ export default function ChapterEditorHeader({
           ))}
         </select>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={onToggleContext}

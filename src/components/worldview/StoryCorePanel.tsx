@@ -5,7 +5,7 @@ import { useWorldGroupStore } from '../../stores/world-group'
 import PromptRunPanel from '../shared/PromptRunPanel'
 import { InlineTextarea } from '../shared/InlineEdit'
 import AIFieldModeTabs from '../shared/AIFieldModeTabs'
-import { CTextarea } from '../shared/CompositionInput'
+import CandidateDraftEditor from '../agent/CandidateDraftEditor'
 import { useMasterCopilot, type PendingMasterCandidate } from '../agent/useMasterCopilot'
 import {
   formatStoryCoreGenerationRequestV1,
@@ -20,6 +20,7 @@ import {
   useInitialRecordTarget,
 } from '../shared/initial-record-target'
 import HarnessEvidencePanel from '../agent/HarnessEvidencePanel'
+import CopilotGenerationStatus from '../agent/CopilotGenerationStatus'
 
 // ── 字段定义 ──────────────────────────────────────────────────
 
@@ -108,12 +109,12 @@ export default function StoryCorePanel({ project, initialStoryCoreId }: Props) {
   return (
     <div
       {...initialRecordTargetAttributes(storyCore?.id === initialStoryCoreId, storyCore?.id)}
-      className={`flex gap-4 max-w-5xl rounded-xl ${
+      className={`flex flex-col md:flex-row gap-4 max-w-5xl rounded-xl ${
         storyCore?.id === initialStoryCoreId ? INITIAL_RECORD_TARGET_CLASS : ''
       }`}
     >
       {/* ── 左侧导航 ── */}
-      <div className="w-fit min-w-32 max-w-40 shrink-0 space-y-0.5 pt-1">
+      <div className="flex flex-wrap md:block md:w-40 shrink-0 gap-1 space-y-0.5 pt-1" aria-label="故事字段">
         {FIELDS.map(f => {
           const active = activeKey === f.key
           const hasContent = !!values[f.key]
@@ -123,7 +124,7 @@ export default function StoryCorePanel({ project, initialStoryCoreId }: Props) {
             <button
               key={f.key}
               onClick={() => setActiveKey(f.key)}
-              className={`w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left transition-all ${
+              className={`md:w-full max-w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left transition-all ${
                 active
                   ? 'bg-accent/8 border-l-2 border-accent'
                   : 'hover:bg-bg-hover border-l-2 border-transparent'
@@ -157,6 +158,7 @@ export default function StoryCorePanel({ project, initialStoryCoreId }: Props) {
 
       {/* ── 右侧：所有字段同时渲染，hidden 控制显示 ── */}
       <div className="flex-1 min-w-0">
+        <CopilotGenerationStatus busy={copilot.busy && !copilot.pendingCandidates.length} onStop={copilot.stop} />
         {FIELDS.map(f => (
           <div key={f.key} className={activeKey === f.key ? '' : 'hidden'}>
             <FieldEditor
@@ -270,13 +272,13 @@ function FieldEditor({
 
       {/* AI 生成区 */}
       <div className="space-y-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <AIFieldModeTabs value={mode} onChange={setMode} />
           <input
             value={hint}
             onChange={e => setHint(e.target.value)}
             placeholder="补充提示（可选）"
-            className="flex-1 px-2 py-1.5 bg-bg-surface border border-border rounded text-xs text-text-primary focus:outline-none focus:border-accent"
+            className="min-w-0 flex-1 basis-40 px-2 py-1.5 bg-bg-surface border border-border rounded text-xs text-text-primary focus:outline-none focus:border-accent"
           />
           <button
             onClick={handleGenerate}
@@ -324,18 +326,17 @@ function FieldEditor({
               <h3 className="text-sm font-semibold text-text-primary">待确认 · {candidate.payload.label}</h3>
               <span className="text-[11px] text-text-muted">
                 {candidate.payload.contextEvidence
-                  ? `约 ${candidate.payload.contextEvidence.estimatedInputTokens.toLocaleString()} tokens`
+                  ? `参考资料约 ${candidate.payload.contextEvidence.estimatedInputTokens.toLocaleString()} tokens（非实际用量）`
                   : `${candidate.payload.contextSources.length} 个输入来源`}
               </span>
             </div>
-            <CTextarea
-              aria-label={`${candidate.payload.label}候选内容`}
+            <CandidateDraftEditor
+              payload={candidate.payload}
               value={candidate.event.content}
               disabled={copilot.busy}
-              onChange={event => {
-                void copilot.updateCandidate(candidate.event.id!, event.target.value)
+              onChange={content => {
+                void copilot.updateCandidate(candidate.event.id!, content)
               }}
-              className="min-h-48 w-full resize-y font-mono text-xs leading-5"
             />
             <HarnessEvidencePanel
               contextEvidence={candidate.payload.contextEvidence}

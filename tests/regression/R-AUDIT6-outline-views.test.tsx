@@ -99,6 +99,22 @@ describe('AUDIT-6 · 大纲纯视图拆分', () => {
     expect(onCancel).toHaveBeenCalledOnce()
   })
 
+  it('确认写入期间阻止重复提交，失败后保留内容并允许重试', async () => {
+    let reject!: (error: Error) => void
+    const onConfirm = vi.fn().mockImplementationOnce(() => new Promise<void>((_, fail) => { reject = fail })).mockResolvedValue(undefined)
+    const host = await mount(createElement(OutlinePreviewPanel, { label: '确认卷纲', items: [{ title: '卷一', summary: '完整摘要' }], onConfirm, onCancel: vi.fn() }))
+    const confirm = Array.from(host.querySelectorAll('button')).find(button => button.textContent?.includes('确认写入'))!
+    await act(async () => { confirm.click(); confirm.click() })
+    expect(onConfirm).toHaveBeenCalledOnce()
+    expect(confirm.disabled).toBe(true)
+    await act(async () => reject(new Error('写入暂时失败')))
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('写入暂时失败')
+    expect(host.textContent).toContain('完整摘要')
+    await act(async () => confirm.click())
+    expect(onConfirm).toHaveBeenCalledTimes(2)
+    expect(host.querySelector('[role="alert"]')).toBeNull()
+  })
+
   it('故事结构菜单选择后回传结构 key 并关闭菜单', async () => {
     const onSelect = vi.fn()
     const host = await mount(createElement(OutlineStructureMenu, { onSelect }))

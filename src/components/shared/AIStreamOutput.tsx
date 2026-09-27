@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { CTextarea } from './CompositionInput'
 import { Square, Check, RotateCcw, Loader2, ThumbsUp, ThumbsDown, Braces, ChevronDown, ChevronRight, X } from 'lucide-react'
 import { usePromptStore } from '../../stores/prompt'
 import type { PromptModuleKey, PromptExample } from '../../lib/types/prompt'
@@ -16,7 +17,9 @@ interface AIStreamOutputProps {
   /** 停止生成 */
   onStop: () => void
   /** 采纳内容；结构化结果由调用方单独审查/应用时可省略 */
-  onAccept?: (text: string) => void
+  onAccept?: (text: string) => void | Promise<void>
+  /** Some structured results require a separate review before formal adoption. */
+  acceptMode?: 'adopt' | 'preview'
   /** 重试 */
   onRetry: () => void
   /** 关闭/弃用本次结果（不写回正文）。传入则显示「关闭」按钮 */
@@ -39,6 +42,7 @@ export default function AIStreamOutput({
   error,
   onStop,
   onAccept,
+  acceptMode = 'adopt',
   onRetry,
   onDismiss,
   placeholder = '点击生成按钮，让 AI 为你创作...',
@@ -46,6 +50,9 @@ export default function AIStreamOutput({
   tokenUsage,
   editable = false,
 }: AIStreamOutputProps) {
+  const acceptingRef = useRef(false)
+  const [accepting, setAccepting] = useState(false)
+  const [acceptError, setAcceptError] = useState('')
   const [editableOutput, setEditableOutput] = useState(output)
   useEffect(() => setEditableOutput(output), [output])
   const displayedOutput = editable && !isStreaming ? editableOutput : output
@@ -58,6 +65,16 @@ export default function AIStreamOutput({
   const isStructured = hasOutput && (
     trimmed.startsWith('{') || trimmed.startsWith('[') || /^```(?:json)?\s*[[{]/.test(trimmed)
   )
+
+  const handleAccept = async () => {
+    if (!onAccept || acceptingRef.current) return
+    acceptingRef.current = true
+    setAccepting(true)
+    setAcceptError('')
+    try { await onAccept(displayedOutput) }
+    catch (cause) { setAcceptError(cause instanceof Error ? cause.message : '采纳失败，请重试。') }
+    finally { acceptingRef.current = false; setAccepting(false) }
+  }
 
   /** 把当前输出存为模板的好/坏示例 */
   const handleMark = async (kind: 'good' | 'bad') => {
@@ -87,7 +104,7 @@ export default function AIStreamOutput({
   return (
     <div className="border border-border rounded-lg overflow-hidden border-l-2 border-l-accent">
       {/* 输出区域 */}
-      <div className="min-h-[200px] max-h-[500px] overflow-y-auto p-4 bg-accent-soft">
+      <div className={`${isStructured && acceptMode === 'preview' && !isStreaming ? '' : 'min-h-[200px]'} max-h-[500px] overflow-y-auto p-4 bg-accent-soft`}>
         {error ? (
           <div className="text-error text-sm">
             <p className="font-medium mb-1">⚠️ 生成失败</p>
@@ -107,11 +124,12 @@ export default function AIStreamOutput({
             )}
           </div>
         ) : editable && hasOutput && !isStreaming ? (
-          <textarea
+          <CTextarea
             aria-label="AI 候选可编辑内容"
+            disabled={accepting}
             value={editableOutput}
             onChange={event => setEditableOutput(event.target.value)}
-            className="min-h-[260px] w-full resize-y rounded border border-border bg-bg-surface p-3 font-mono text-xs leading-5 text-text-primary outline-none focus:border-accent"
+            className="min-h-[260px] w-full resize-y rounded border border-border bg-bg-surface p-3 text-sm leading-7 text-text-primary outline-none focus:border-accent"
           />
         ) : isStructured ? (
           // 结构化（JSON）输出：不直接展示原始 JSON，给友好提示 + 可折叠原文
@@ -122,13 +140,13 @@ export default function AIStreamOutput({
                 <span className="flex items-center gap-1.5">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   {onAccept
-                    ? 'AI 正在生成结构化内容…（完成后点「采纳」自动整理为可编辑内容）'
+                    ? acceptMode === 'preview' ? 'AI 正在生成大纲候选…完成后可预览，再确认写入。' : 'AI 正在生成结构化内容…（完成后点「采纳」自动整理为可编辑内容）'
                     : 'AI 正在生成结构化内容…（完成后将在下方生成可审查计划）'}
                 </span>
               ) : (
                 <span>
                   {onAccept
-                    ? '✓ 已生成结构化内容，点「采纳」自动整理填入对应栏目。'
+                    ? acceptMode === 'preview' ? '候选已生成。先预览完整内容，再确认写入作品。' : '✓ 已生成结构化内容，点「采纳」自动整理填入对应栏目。'
                     : '✓ 已生成结构化内容，系统已解析为下方可审查计划。'}
                 </span>
               )}
@@ -161,8 +179,9 @@ export default function AIStreamOutput({
         )}
       </div>
 
+      {acceptError && <p role="alert" className="p-3 text-sm text-error">{acceptError}</p>}
       {/* 操作栏 */}
-      <div className="flex items-center justify-between px-4 py-2 bg-bg-elevated border-t border-border">
+      <div className="flex flex-wrap gap-2 items-center justify-between px-4 py-2 bg-bg-elevated border-t border-border">
         <span className="text-text-muted text-xs flex items-center gap-2">
           {hasOutput && <span>{displayedOutput.length} 字</span>}
           {tokenUsage ? (
@@ -175,7 +194,7 @@ export default function AIStreamOutput({
             </span>
           ) : null}
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {isStreaming ? (
             <button
               onClick={onStop}
@@ -188,6 +207,7 @@ export default function AIStreamOutput({
             <>
               {(hasOutput || error) && (
                 <button
+                  disabled={accepting}
                   onClick={onRetry}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-bg-hover text-text-secondary rounded-md hover:text-text-primary transition-colors"
                 >
@@ -228,16 +248,18 @@ export default function AIStreamOutput({
               )}
               {hasOutput && !error && onAccept && (
                 <button
-                  onClick={() => onAccept(displayedOutput)}
+                  disabled={accepting || !displayedOutput.trim()}
+                  onClick={() => { void handleAccept() }}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-accent text-white rounded-md hover:bg-accent-hover transition-colors"
                 >
                   <Check className="w-3 h-3" />
-                  采纳
+                  {accepting ? '正在处理…' : acceptMode === 'preview' ? '预览候选' : '采纳'}
                 </button>
               )}
               {/* G2：关闭/弃用——不满意可直接关掉，保留原文不写回 */}
               {onDismiss && (hasOutput || error) && (
                 <button
+                  disabled={accepting}
                   onClick={onDismiss}
                   title="关闭，保留原文不采纳"
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-bg-hover text-text-muted rounded-md hover:text-text-primary transition-colors"

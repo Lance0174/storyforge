@@ -101,9 +101,21 @@ describe('CF-20260702-3 · 大纲生成依据面板', () => {
       totalInputTokens: 8,
     }))
 
-    expect(host.textContent).toContain('未填写故事核心或故事线')
+    expect(host.textContent).toContain('本次未读取故事核心或故事线')
     expect(host.textContent).toContain('未采纳的灵感草稿不会进入生成上下文')
     expect(host.textContent).toContain('无可用内容：故事核心、角色档案')
     expect(host.textContent).toContain('因模型上下文预算未发送：历史时间线')
+  })
+
+  it('Gateway 按字段读取不误报作者没填写故事，并展示实际资料', async () => {
+    const host = await renderBasis(makeContext({
+      included: ['ragSelection'],
+      text: '【故事核心】雾港修钟人追查失踪案',
+      segments: [{ label: '选定资料', layer: 'L0', content: '【故事核心】雾港修钟人追查失踪案', tokens: 20, trimmable: false }],
+    }))
+    expect(host.textContent).toContain('查看本次读取的资料')
+    expect(host.textContent).toContain('雾港修钟人追查失踪案')
+    expect(host.textContent).not.toContain('未填写')
+    expect(host.textContent).not.toContain('本次未读取故事核心')
   })
 })

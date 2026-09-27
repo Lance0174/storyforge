@@ -19,8 +19,8 @@ interface Props {
   onAccept: (text: string) => void
   onRetry: () => void
   onDismiss: () => void
-  onConfirmVolumes: () => void
-  onConfirmChapters: () => void
+  onConfirmVolumes: () => void | Promise<void>
+  onConfirmChapters: () => void | Promise<void>
   onCancelPreview: () => void
   canAdopt: boolean
   adoptionRecoveryRequired: boolean
@@ -57,6 +57,7 @@ export default function OutlineGenerationResultPanel({
           tokenUsage={tokenUsage}
           onStop={onStop}
           onAccept={onAccept}
+          acceptMode="preview"
           onRetry={onRetry}
           onDismiss={onDismiss}
           moduleKey={moduleKey}

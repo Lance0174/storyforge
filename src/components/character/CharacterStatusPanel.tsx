@@ -4,10 +4,14 @@
  * 在角色卡片下方展示该角色的当前状态（来自状态卡系统），
  * 包括：位置、实力等级、持有物品、近期事件等。
  */
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { liveQuery } from 'dexie'
 import { MapPin, Zap, Package, History, Swords } from 'lucide-react'
+import { db } from '../../lib/db/schema'
+import { assertRecordInScope, resolveReadScopeLike } from '../../lib/workspace/scope'
 import { useStateCardStore } from '../../stores/state-card'
 import { parseFields, type StateField } from '../../lib/types/state-card'
+import type { Chapter } from '../../lib/types'
 
 interface Props {
   projectId: number
@@ -36,6 +40,18 @@ export default function CharacterStatusPanel({ projectId, characterName }: Props
     )
   }, [cards, projectId, characterName])
 
+  const [sourceChapter, setSourceChapter] = useState<Chapter | null>(null)
+  useEffect(() => {
+    setSourceChapter(null)
+    const subscription = liveQuery(async () => {
+      if (!stateCard?.lastChapterId) return null
+      const chapter = await db.chapters.get(stateCard.lastChapterId)
+      return chapter && await assertRecordInScope(await resolveReadScopeLike(projectId), 'chapters', chapter, { owner: 'work' })
+        ? chapter : null
+    }).subscribe({ next: setSourceChapter, error: () => setSourceChapter(null) })
+    return () => subscription.unsubscribe()
+  }, [projectId, stateCard?.lastChapterId])
+
   if (!stateCard) return null
 
   const fields: StateField[] = parseFields(stateCard.fields)
@@ -58,9 +74,9 @@ export default function CharacterStatusPanel({ projectId, characterName }: Props
           )
         })}
       </div>
-      {stateCard.lastChapterId && (
+      {sourceChapter?.projectId === projectId && sourceChapter.id === stateCard.lastChapterId && (
         <p className="mt-1 text-[10px] text-text-muted">
-          最后更新于章节 #{stateCard.lastChapterId}
+          最后更新于《{sourceChapter.title}》
         </p>
       )}
     </div>

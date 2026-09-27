@@ -161,15 +161,15 @@ describe('R-HARNESS33 · 分步骤角色面板接入 character.create Skill', ()
     }
     mocks.copilot.pendingCandidates = [candidate]
     const host = await renderPanel()
-    expect(host.querySelector('textarea[aria-label="角色候选内容"]')).not.toBeNull()
+    expect(host.querySelector('textarea[aria-label="姓名 · 候选 1"]')).not.toBeNull()
 
-    const editor = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="角色候选内容"]')!
-    const revised = JSON.stringify({ ...validCandidate(), name: '作者确认角色' })
+    const editor = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="姓名 · 候选 1"]')!
+    const revised = '作者确认角色'
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(editor, revised)
-      editor.dispatchEvent(new Event('change', { bubbles: true }))
+      editor.dispatchEvent(new Event('input', { bubbles: true }))
     })
-    expect(mocks.copilot.updateCandidate).toHaveBeenCalledWith(77, editor.value)
+    expect(mocks.copilot.updateCandidate).toHaveBeenCalledWith(77, JSON.stringify({ ...validCandidate(), name: revised }, null, 2))
 
     const buttons = Array.from(host.querySelectorAll('button'))
     await act(async () => buttons.find(item => item.textContent?.includes('拒绝'))!.click())

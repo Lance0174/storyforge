@@ -459,7 +459,7 @@ export function ReconciliationTable({
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium text-amber-300">📊 计划—正文对账</span>
-              <span className="text-xs text-text-muted">第 {reconciliation.chapterId} 章: {chapterTitle}</span>
+              <span className="text-xs text-text-muted">{chapterTitle}</span>
             </div>
 
             {nextChapterTitle && (

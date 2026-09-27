@@ -11,6 +11,7 @@ import {
   recordProseGenerationCandidateV1,
   recoverProseGenerationCandidateV1,
   rejectProseGenerationCandidateV1,
+  reviseProseGenerationCandidateV1,
   isProseGenerationCandidateCurrentV1,
   PROSE_GENERATION_CANDIDATE_TYPE_V1,
   PROSE_GENERATION_STEP_ID_V1,
@@ -189,6 +190,34 @@ describe.sequential('R-HARNESS7 · 正文生成 durable run', { timeout: 15_000 
   })
 
   afterEach(() => db.close())
+
+  it.each(['generate', 'continue'] as const)('作者修订 %s 候选可刷新恢复，并沿原 Gateway 证据链采纳', async operation => {
+    const pending = await preparePending('作者修订', operation)
+    const outputText = '守灯人收起铜箔，没有推开潮门。'
+    const candidate = await reviseProseGenerationCandidateV1({ scope: pending.fixture.scope, candidate: pending.candidate, outputText })
+    expect((await db.chapters.get(pending.fixture.chapterId))?.content).toBe(pending.fixture.content)
+    expect(await readLatestProseGenerationCandidateV1({ scope: pending.fixture.scope, chapterId: pending.fixture.chapterId })).toEqual(candidate)
+    expect((await recoverProseGenerationCandidateV1({ scope: pending.fixture.scope, candidate }))?.projection.state).toBe('awaiting_confirmation')
+    const contentHtml = operation === 'continue' ? `${pending.fixture.content}<p>${outputText}</p>` : `<p>${outputText}</p>`
+    const result = await commitProseGenerationAdoptionV1({ scope: pending.fixture.scope, runId: candidate.durable.runId, candidate, contentHtml, wordCount: 18 })
+    expect(result.snapshot.projection.state).toBe('completed')
+    expect(result.snapshot.events.filter(event => event.type === 'candidate.revised')).toHaveLength(1)
+    expect((await db.chapters.get(pending.fixture.chapterId))?.content).toBe(contentHtml)
+  })
+
+  it('正文候选修订拒绝空内容、跨作品、过期和重复旧版本', async () => {
+    const pending = await preparePending('修订保护')
+    const revise = (outputText: string) => reviseProseGenerationCandidateV1({ scope: pending.fixture.scope, candidate: pending.candidate, outputText })
+    await expect(revise('  ')).rejects.toThrow('不能为空')
+    const foreign = await createWorkspace('另一部作品')
+    await expect(reviseProseGenerationCandidateV1({ scope: foreign.scope, candidate: pending.candidate, outputText: '跨界' })).rejects.toThrow('越界')
+    await revise('作者修改的正文。')
+    await expect(revise('重复使用旧候选')).rejects.toThrow()
+    const restored = (await readLatestProseGenerationCandidateV1({ scope: pending.fixture.scope, chapterId: pending.fixture.chapterId }))!
+    await db.chapters.update(pending.fixture.chapterId, { content: '<p>作者修改了原稿。</p>' })
+    await expect(reviseProseGenerationCandidateV1({ scope: pending.fixture.scope, candidate: restored, outputText: '迟到修订' })).rejects.toThrow()
+    expect((await db.chapters.get(pending.fixture.chapterId))?.content).toBe('<p>作者修改了原稿。</p>')
+  })
 
   it('生成正文先停在候选，作者确认后经 CAS 写回并签发 receipt', async () => {
     const pending = await preparePending('正文生成')
