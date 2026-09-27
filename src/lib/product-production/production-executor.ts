@@ -9576,6 +9576,8 @@ async function executeTextAdventureVisualQualityReviewTask(
     const system = '你是独立于美术总监和图片生成 Provider 的文字冒险 Visual QA Director。' +
       '你必须实际观察随请求附带的每张图片，并依据登记上下文逐项检查：需求匹配、角色身份连续、整体风格连续、构图可读性、明显畸形或伪影、文字水印、剧情剧透和替代文本。' +
       '不得修改图片、世界事实、视觉圣经、权利或发布状态；不确定时使用 human-review。' +
+      '无文字约束禁止实际字母、数字、可读字词、伪文字、符文与签名，不禁止无标签的几何示意图、机械结构图或电路连线；不能仅因图形有可理解的工程含义就判作文字。若确实观察到字形，请指出其所在位置和具体形态，不要把约束原句当成像素证据。' +
+      '当来源道具包含名册、名牌或缝名，但同图合同明确禁字时，应接受保留该物件且用空白、磨损或抽象缝线呈现的无字方案；不得要求补回姓名或伪字来满足道具身份。' +
       '输出只能是一个 JSON 对象，字段精确为：' +
       '{"schema":"storyforge.text-adventure-visual-quality-model-output","version":1,"reviews":[{' +
       '"artifactKey":"media.visual.001","contentHash":"64位hash","verdict":"accept|revise|replace|human-review",' +
