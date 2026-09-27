@@ -258,7 +258,7 @@ describe('PRODUCT-PROD-1E · recovery policy UI', () => {
 
   afterAll(() => db.close())
 
-  it.each(['content.quest-script.main.act-2.single', 'content.quest-script.supplemental'])('%s 失败后可提交完整修订稿，错误Skill身份不能获得修订权', async taskKey => {
+  it.each(['content.quest-script.main.act-2.single', 'content.quest-script.supplemental', 'content.dialogue-pass.act-2'])('%s 失败后可提交完整修订稿，错误Skill身份不能获得修订权', async taskKey => {
     const f = await seedTextAdventureMediaRevisionWorkbenchV1('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X8WgWQAAAABJRU5ErkJggg==')
     const build = (await db.productBuilds.get(f.parentBuildId))!
     const task = parseProductProductionPlanV3(build.planJson).tasks.find(row => row.taskKey === taskKey)!

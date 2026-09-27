@@ -38,6 +38,9 @@ const TEXT_ADVENTURE_AUTHOR_REPAIR_TASKS = new Map<string, string>([
   ['content.scene-script.act-2.part-2', 'text-adventure.scene-script.v1'],
   ['content.scene-script.act-3.part-1', 'text-adventure.scene-script.v1'],
   ['content.scene-script.act-3.part-2', 'text-adventure.scene-script.v1'],
+  ['content.dialogue-pass.act-1', 'text-adventure.dialogue-pass.v1'],
+  ['content.dialogue-pass.act-2', 'text-adventure.dialogue-pass.v1'],
+  ['content.dialogue-pass.act-3', 'text-adventure.dialogue-pass.v1'],
   ['media.requirements', 'text-adventure.visual-direction.v1'],
 ])
 

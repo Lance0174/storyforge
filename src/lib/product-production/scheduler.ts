@@ -2326,7 +2326,11 @@ async function ensurePlan(input: {
     const currentEpochHasPassedQuality = await passedTextAdventureQualityReviewAtEpochV1({
       buildId: state.build.id!, controlEpoch: currentPlan.controlEpoch,
     })
-    const activeQualityRepairCause = currentEpochHasPassedQuality
+    const revisedNarrativeReviewRetry = await revisedNarrativeQualityRetryTaskV1({
+      buildId: state.build.id!, controlEpoch: currentPlan.controlEpoch,
+      failureJson: state.build.failureJson,
+    })
+    const activeQualityRepairCause = currentEpochHasPassedQuality || revisedNarrativeReviewRetry != null
       ? null : activeTextAdventureQualityRepairCauseV1(state.build.failureJson)
     const regressedQualityPassEpoch = parentQualityRollback == null
       && reviewRollbackControlEpoch == null
@@ -2931,6 +2935,36 @@ async function latestFailedTextAdventureQualityReviewV1(
   return null
 }
 
+/** A failed reviewer request is not a new rejection of a revised manuscript. */
+export async function revisedNarrativeQualityRetryTaskV1(input: {
+  buildId: number
+  controlEpoch: number
+  failureJson: string
+}): Promise<string | null> {
+  const envelope = parsedObject(input.failureJson)
+  const failure = envelope.previousFailure && typeof envelope.previousFailure === 'object'
+    && !Array.isArray(envelope.previousFailure)
+    ? envelope.previousFailure as Record<string, unknown> : envelope
+  const taskKey = failure.taskKey
+  if (typeof taskKey !== 'string'
+    || !/^content\.adventure-quality-review\.(?:structure|act-[1-3])$/.test(taskKey)) return null
+  const review = await latestFailedTextAdventureQualityReviewV1(input.buildId, input.controlEpoch + 1)
+  if (!review || review.controlEpoch >= input.controlEpoch) return null
+  const rows = await db.productBuildArtifacts.where('buildId').equals(input.buildId).toArray()
+  const current = rows.filter(row => row.artifactKey === 'content.narrative'
+    && row.controlEpoch === input.controlEpoch
+    && (row.status === 'accepted' || row.status === 'carried-forward'))
+  const reviewed = rows.filter(row => row.artifactKey === 'content.narrative'
+    && row.controlEpoch === review.controlEpoch)
+  if (current.length !== 1 || reviewed.length !== 1
+    || current[0].contentHash === reviewed[0].contentHash) return null
+  for (const row of [current[0], reviewed[0]]) {
+    if (!isSha256Hash(row.contentHash)
+      || await hashProductProductionValueV2(parsedObject(row.payloadJson)) !== row.contentHash) return null
+  }
+  return taskKey
+}
+
 function qualityEvidenceRecords(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.flatMap(item => (
     item && typeof item === 'object' && !Array.isArray(item)
@@ -3404,6 +3438,13 @@ export async function recoveryInvalidatedTaskKeys(input: {
   plan: ProductProductionPlanV3
 }): Promise<Set<string>> {
   if (input.plan.productType !== 'text-adventure') return new Set()
+  const revisedNarrativeReviewRetry = await revisedNarrativeQualityRetryTaskV1({
+    buildId: input.buildId, controlEpoch: input.previousControlEpoch,
+    failureJson: input.failureJson,
+  })
+  if (revisedNarrativeReviewRetry != null) {
+    return expandProductProductionInvalidatedTaskClosureV1(input.plan, [revisedNarrativeReviewRetry])
+  }
   const recovery = parsedObject(input.failureJson)
   const recoveryResolution = recovery.resolution && typeof recovery.resolution === 'object'
     && !Array.isArray(recovery.resolution)

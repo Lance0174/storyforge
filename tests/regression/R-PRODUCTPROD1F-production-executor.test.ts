@@ -7777,10 +7777,15 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     const repairedSceneContexts: string[] = []
     const repairedSceneSystems: string[] = []
     let failFirstRepairEpoch = true
+    let failRevisedNarrativeReview = true
     const runText: ProductionTextRunnerV1 = async request => {
       const taskKey = Object.keys(outputs).find(key => request.system.includes(`任务=${key}。`))
       if (!taskKey) throw new Error(`unknown blocking-review task:${request.system}`)
       taskCalls.set(taskKey, (taskCalls.get(taskKey) ?? 0) + 1)
+      if (!failFirstRepairEpoch && failRevisedNarrativeReview
+        && taskKey === 'content.adventure-quality-review.act-2') {
+        throw new Error('fixture revised narrative review empty response')
+      }
       if (taskKey === 'content.scene-script.act-1.part-1' && (taskCalls.get(taskKey) ?? 0) >= 2) {
         repairedSceneContexts.push(request.contextText)
         repairedSceneSystems.push(request.system)
@@ -7928,6 +7933,31 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
         resolution: { action: 'retry', note: '保留原质量反馈并重试超时的主线修复' },
       },
     })
+    const reviewInterrupted = await runProductProductionUntilBlockedV1({
+      scope: owned.scope, productionId: owned.productionId,
+      executor: createConfiguredProductProductionExecutorV1({
+        production: (await db.productProductions.get(owned.productionId))!, brief: owned.brief, runText,
+      }),
+      capabilityBindings: [{
+        requirementKey: textRequirement.requirementKey, adapterId: 'configured-text.v1', bindingHash,
+      }],
+    })
+    expect(reviewInterrupted.buildStatus).toBe('recovery-required')
+    const reviewInterruptedBuild = (await db.productBuilds.get(build.id!))!
+    expect(JSON.parse(reviewInterruptedBuild.failureJson).taskKey).toBe('content.adventure-quality-review.act-2')
+    const narrativeBeforeReviewRetry = (await db.productBuildArtifacts.where('[buildId+artifactKey]')
+      .equals([build.id!, 'content.narrative']).toArray())
+      .find(row => row.controlEpoch === reviewInterruptedBuild.controlEpoch && row.status === 'accepted')!
+    const callsBeforeReviewRetry = new Map(taskCalls)
+    failRevisedNarrativeReview = false
+    await executeProductProductionCommand({
+      scope: owned.scope, productionId: owned.productionId,
+      command: {
+        type: 'resolve-blocker', commandId: 'text-adventure.quality-repair.retry-review-only',
+        expectedStateRevision: (await db.productProductions.get(owned.productionId))!.stateRevision,
+        blockerKey: 'content.adventure-quality-review.act-2', resolution: { action: 'retry', note: '仅恢复新版正文审查' },
+      },
+    })
     const repaired = await runProductProductionUntilBlockedV1({
       scope: owned.scope, productionId: owned.productionId,
       executor: createConfiguredProductProductionExecutorV1({
@@ -7937,6 +7967,15 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
         requirementKey: textRequirement.requirementKey, adapterId: 'configured-text.v1', bindingHash,
       }],
     })
+    for (const [taskKey, calls] of callsBeforeReviewRetry) {
+      if (taskKey.startsWith('content.scene-script.') || taskKey.startsWith('content.dialogue-pass.')) {
+        expect(taskCalls.get(taskKey), taskKey).toBe(calls)
+      }
+    }
+    const narrativeAfterReviewRetry = (await db.productBuildArtifacts.where('[buildId+artifactKey]')
+      .equals([build.id!, 'content.narrative']).toArray())
+      .find(row => row.controlEpoch === repaired.controlEpoch && row.status === 'accepted')
+    expect(narrativeAfterReviewRetry?.contentHash).toBe(narrativeBeforeReviewRetry.contentHash)
     expect(
       repaired,
       `quality repair projection=${JSON.stringify(repaired)} failure=${(await db.productBuilds.get(build.id!))?.failureJson}`,
@@ -7964,7 +8003,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
       ['content.adventure-ambient-events', 1],
       ['content.adventure-quality-review.structure', 2],
       ['content.adventure-quality-review.act-1', 2],
-      ['content.adventure-quality-review.act-2', 2],
+      ['content.adventure-quality-review.act-2', 4],
       ['content.adventure-quality-review.act-3', 2],
       ['media.requirements', 1], ['qa.playtest-strategy', 1],
     ])

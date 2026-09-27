@@ -27,6 +27,7 @@ import {
   textAdventureQualityRollbackAlreadyAppliedV1,
   productProductionRecoveryHasNewerCompatibleRootV1,
   recoveryInvalidatedTaskKeys,
+  revisedNarrativeQualityRetryTaskV1,
   executionBindingDriftInvalidatedTaskKeysV1,
   effectiveTextProviderConcurrencyV1,
   textAdventureTaskFailures,
@@ -1918,6 +1919,51 @@ describe('R-PRODUCTPROD-1D · durable bounded DAG scheduler', () => {
     expect(invalidated).not.toContain('content.dialogue-pass.act-3')
     expect(invalidated).not.toContain('content.narrative-decision-plan')
     expect(invalidated).not.toContain('content.main-quest-plan')
+  })
+
+  it('已装配新版正文后的审查中断只恢复审查，旧报告不再倒退重写；未改稿和损坏证据不享有该恢复', async () => {
+    const f = await textAdventureQualityRecoveryFixture('revised-narrative-review-retry')
+    await acceptProductBuildArtifact({
+      scope: f.scope, buildId: f.build.id!, controlEpoch: f.build.controlEpoch,
+      artifactKey: 'content.narrative', kind: 'narrative',
+      payload: { text: '旧的错误选项' }, inputHash: '5'.repeat(64), producerReceiptHash: '6'.repeat(64),
+    })
+    await acceptProductBuildArtifact({
+      scope: f.scope, buildId: f.build.id!, controlEpoch: f.build.controlEpoch,
+      artifactKey: 'quality.adventure-review', kind: 'playtest-report',
+      payload: failedTextAdventureReview({ issues: [{
+        severity: 'blocking', artifactKey: 'content.dialogue-pass.act-2',
+        detail: '选项动作与下一场开头不一致', recommendation: '修订选择描述',
+      }] }), inputHash: '7'.repeat(64), producerReceiptHash: '8'.repeat(64),
+    })
+    const source = (await db.productBuildArtifacts.where('[buildId+artifactKey]')
+      .equals([f.build.id!, 'content.narrative']).first())!
+    const payload = { text: '已修订且重新装配的选择动作' }
+    const revisedId = await db.productBuildArtifacts.add({
+      ...source, id: undefined, version: source.version + 1,
+      controlEpoch: f.build.controlEpoch + 1,
+      payloadJson: canonicalProductProductionJsonV2(payload), contentHash: await hashProductProductionValueV2(payload),
+    })
+    const failureJson = JSON.stringify({ previousFailure: {
+      taskKey: 'content.adventure-quality-review.act-2', code: 'task-executor-failed',
+      detail: 'HTTP 200 empty response finish=length',
+      repairCause: { taskKey: 'integration.package', detail: '文字冒险叙事质量审查未通过' },
+    } })
+    const retry = { buildId: f.build.id!, controlEpoch: f.build.controlEpoch + 1, failureJson }
+    expect(await revisedNarrativeQualityRetryTaskV1(retry)).toBe('content.adventure-quality-review.act-2')
+    const invalidated = await recoveryInvalidatedTaskKeys({
+      ...retry, previousControlEpoch: retry.controlEpoch,
+      plan: { ...f.recoveryPlan, controlEpoch: retry.controlEpoch + 1 },
+    })
+    expect(invalidated).toContain('content.adventure-quality-review.act-2')
+    expect(invalidated).toContain('integration.package')
+    expect(invalidated).not.toContain('content.dialogue-pass.act-2')
+    expect(invalidated).not.toContain('content.scene-script.act-2.part-2')
+    expect(invalidated).not.toContain('content.adventure-quality-review.act-1')
+    await db.productBuildArtifacts.update(revisedId, { payloadJson: source.payloadJson, contentHash: source.contentHash })
+    expect(await revisedNarrativeQualityRetryTaskV1(retry)).toBeNull()
+    await db.productBuildArtifacts.update(revisedId, { contentHash: '9'.repeat(64) })
+    expect(await revisedNarrativeQualityRetryTaskV1(retry)).toBeNull()
   })
 
   it('审查字段路径保留 stable key owner，精确路由 choice.label 到对应幕对白', async () => {
