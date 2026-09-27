@@ -25,6 +25,7 @@ const FAILURE_POLICIES = ['fail-build', 'pause', 'fallback', 'skip-optional'] as
 export const TEXT_ADVENTURE_VISUAL_REVIEW_BATCH_SIZE_V1 = 1
 export const TEXT_ADVENTURE_SCENE_SCRIPT_INPUT_CEILING_V1 = 31_680
 export const TEXT_ADVENTURE_MAIN_QUEST_INPUT_CEILING_V1 = 42_240
+export const TEXT_ADVENTURE_QUALITY_REVIEW_TIMEOUT_MS_V1 = 360_000
 
 export type TextAdventureQualityReviewTaskKeyV1 =
   `content.adventure-quality-review.${TextAdventureQualityReviewScopeV1}`
@@ -1148,7 +1149,7 @@ export async function createProductProductionPlanV3(input: {
         capabilityRequirementKeys: textCapabilities, concurrencyGroup: 'text-provider',
         subjectLockKeys: [artifactKey], priority: 78 - index,
         budgetReservation: modelBudget(taskKey),
-        maxAttempts: 2, timeoutMs: 360_000, failurePolicy: 'pause', fallbackTaskKey: null,
+        maxAttempts: 2, timeoutMs: TEXT_ADVENTURE_QUALITY_REVIEW_TIMEOUT_MS_V1, failurePolicy: 'pause', fallbackTaskKey: null,
         acceptanceGateIds: ['artifact.protocol', 'adventure.narrative-quality-review-batch'],
       }))
     })

@@ -66,6 +66,7 @@ import {
   executionBindingDriftInvalidatedTaskKeysV1,
   prepareLegacyPausedProductBuildV1,
   runProductProductionUntilBlockedV1,
+  runProductProductionSchedulerCycleV1,
 } from '../../src/lib/product-production/scheduler'
 import { parseProductRuntimePackageV1 } from '../../src/lib/product-production/runtime-package'
 import { evaluateProductRuntimeProductQualityV1 } from '../../src/lib/product-production/product-quality'
@@ -4621,7 +4622,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     ])
   }, 30_000)
 
-  it.each(['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan', 'content.main-quest-plan', 'content.adventure-side-quests', 'content.adventure-ambient-events', 'content.scene-script.act-1.part-1', 'content.scene-script.act-1.part-2', 'content.scene-script.act-2.part-1', 'content.scene-script.act-2.part-2', 'content.scene-script.act-3.part-1', 'content.scene-script.act-3.part-2'] as const)('%s 暂停后修订已验收内容：绑定命令与原稿，只使后代失效，作者正文零模型采纳', async (revisionKey) => {
+  it.each(['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan', 'content.main-quest-plan', 'content.adventure-side-quests', 'content.adventure-ambient-events', 'content.scene-script.act-1.part-1', 'content.scene-script.act-1.part-2', 'content.scene-script.act-2.part-1', 'content.scene-script.act-2.part-2', 'content.scene-script.act-3.part-1', 'content.scene-script.act-3.part-2', 'content.dialogue-pass.act-1', 'content.dialogue-pass.act-2', 'content.dialogue-pass.act-3'] as const)('%s 暂停后修订已验收内容：绑定命令与原稿，只使后代失效，作者正文零模型采纳', async (revisionKey) => {
     const owned = await fixtureForProduct('text-adventure', { scale: 'short-arc', visualLevel: 'none', omitWorldArtifacts: true })
     const requirement = owned.brief.capabilityRequirements.find(item => item.mediaClass === 'text')!
     const bindingHash = 'a'.repeat(64)
@@ -4632,7 +4633,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     const runText: ProductionTextRunnerV1 = async request => {
       const key = Object.keys(outputs).find(key => request.system.includes(`任务=${key}。`))!
       calls.push(key)
-      if (key === ({ 'content.story-bible': 'content.cast-bible', 'content.cast-bible': 'content.adventure-architecture', 'content.adventure-architecture': 'content.narrative-arc-scenes', 'content.narrative-arc-scenes': 'content.narrative-decision-plan', 'content.narrative-decision-plan': 'content.ending-route-plan', 'content.ending-route-plan': 'content.main-quest-plan', 'content.main-quest-plan': 'content.adventure-side-quests', 'content.adventure-side-quests': 'content.quest-script.main.act-1.single', 'content.adventure-ambient-events': 'content.quest-script.main.act-1.single', 'content.scene-script.act-1.part-1': 'content.adventure-quality-review.act-1', 'content.scene-script.act-1.part-2': 'content.adventure-quality-review.act-1', 'content.scene-script.act-2.part-1': 'content.adventure-quality-review.act-1', 'content.scene-script.act-2.part-2': 'content.adventure-quality-review.act-1', 'content.scene-script.act-3.part-1': 'content.adventure-quality-review.act-1', 'content.scene-script.act-3.part-2': 'content.adventure-quality-review.act-1' }[revisionKey]) && pauseOnce) {
+      if (key === ({ 'content.story-bible': 'content.cast-bible', 'content.cast-bible': 'content.adventure-architecture', 'content.adventure-architecture': 'content.narrative-arc-scenes', 'content.narrative-arc-scenes': 'content.narrative-decision-plan', 'content.narrative-decision-plan': 'content.ending-route-plan', 'content.ending-route-plan': 'content.main-quest-plan', 'content.main-quest-plan': 'content.adventure-side-quests', 'content.adventure-side-quests': 'content.quest-script.main.act-1.single', 'content.adventure-ambient-events': 'content.quest-script.main.act-1.single', 'content.scene-script.act-1.part-1': 'content.adventure-quality-review.act-1', 'content.scene-script.act-1.part-2': 'content.adventure-quality-review.act-1', 'content.scene-script.act-2.part-1': 'content.adventure-quality-review.act-1', 'content.scene-script.act-2.part-2': 'content.adventure-quality-review.act-1', 'content.scene-script.act-3.part-1': 'content.adventure-quality-review.act-1', 'content.scene-script.act-3.part-2': 'content.adventure-quality-review.act-1', 'content.dialogue-pass.act-1': 'content.adventure-quality-review.act-1', 'content.dialogue-pass.act-2': 'content.adventure-quality-review.act-1', 'content.dialogue-pass.act-3': 'content.adventure-quality-review.act-1' }[revisionKey]) && pauseOnce) {
         pauseOnce = false
         expect((await executeProductProductionCommand({ scope: owned.scope, productionId: owned.productionId,
           command: { type: 'pause', commandId: 'story-revision.pause',
@@ -4666,6 +4667,7 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     else if (revisionKey === 'content.ending-route-plan') edited.routes[0].rationale = '此前的持续承诺使这个结局成为具体行动的结果。'
     else if (revisionKey === 'content.main-quest-plan') edited.quests[0].description = '让此前的承诺在实际行动与代价中得到兑现。'
     else if (revisionKey.startsWith('content.scene-script.')) edited.scenes[0].beats[0].text += '眼前的潮痕让你停下，重新核对手中的线索。'
+    else if (revisionKey.startsWith('content.dialogue-pass.')) { edited.beatReviews[0].revisedText = '先看清眼前的潮痕，再决定我们往哪里走。'; edited.beatReviews[0].verdict = 'revise'; edited.beatReviews[0].issueTags = ['exposition'] }
     else edited.entries[0].description = '具体的援助留下可以追踪的后果。'
     const revision = { artifactKey: revisionKey, expectedArtifactVersion: baseline.version,
       expectedArtifactHash: baseline.contentHash, note: '纠正故事的情绪承诺，不改变世界事实',
@@ -7958,6 +7960,27 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
         blockerKey: 'content.adventure-quality-review.act-2', resolution: { action: 'retry', note: '仅恢复新版正文审查' },
       },
     })
+    await runProductProductionSchedulerCycleV1({
+      scope: owned.scope, productionId: owned.productionId,
+      executor: createConfiguredProductProductionExecutorV1({
+        production: (await db.productProductions.get(owned.productionId))!, brief: owned.brief, runText,
+      }),
+      capabilityBindings: [{ requirementKey: textRequirement.requirementKey, adapterId: 'configured-text.v1', bindingHash }],
+    })
+    for (const type of ['pause', 'resume'] as const) {
+      const pauseFailure = JSON.parse((await db.productBuilds.get(build.id!))!.failureJson) as {
+        pausedProviderReservations?: Array<{ taskKey: string; runId: number; attempt: number; controlEpoch: number }>
+      }
+      await executeProductProductionCommand({
+        scope: owned.scope, productionId: owned.productionId,
+        command: { type, commandId: `quality-review-partial-carry.${type}`,
+          expectedStateRevision: (await db.productProductions.get(owned.productionId))!.stateRevision,
+          ...(type === 'pause' ? { reason: '审查重试开始前暂停，不能复活旧失败报告' }
+            : { pausedReservationDispositions: pauseFailure.pausedProviderReservations!.map(reservation => ({
+              ...reservation, disposition: 'charge-reservation-upper-bound' as const,
+            })) }) },
+      })
+    }
     const repaired = await runProductProductionUntilBlockedV1({
       scope: owned.scope, productionId: owned.productionId,
       executor: createConfiguredProductProductionExecutorV1({
@@ -7975,7 +7998,9 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     const narrativeAfterReviewRetry = (await db.productBuildArtifacts.where('[buildId+artifactKey]')
       .equals([build.id!, 'content.narrative']).toArray())
       .find(row => row.controlEpoch === repaired.controlEpoch && row.status === 'accepted')
-    expect(narrativeAfterReviewRetry?.contentHash).toBe(narrativeBeforeReviewRetry.contentHash)
+    expect(narrativeAfterReviewRetry?.contentHash,
+      `projection=${JSON.stringify(repaired)} failure=${(await db.productBuilds.get(build.id!))?.failureJson}`,
+    ).toBe(narrativeBeforeReviewRetry.contentHash)
     expect(
       repaired,
       `quality repair projection=${JSON.stringify(repaired)} failure=${(await db.productBuilds.get(build.id!))?.failureJson}`,

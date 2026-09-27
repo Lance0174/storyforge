@@ -994,6 +994,20 @@ describe('PRODUCTPROD-1B · user command control plane', () => {
       task.taskKey === 'content.adventure-quality-review.act-2'
     ))!
     expect(narrativeReviewer.budgetReservation.outputTokens).toBe(32_000)
+    const reviewerTimeout = (timeoutMs: number) => canonicalProductProductionJsonV2({
+      taskKey: narrativeReviewer.taskKey, code: 'task-timeout', attempt: 2,
+      detail: `[product-production-scheduler] ${narrativeReviewer.taskKey} 超过任务合同 ${timeoutMs}ms`,
+    })
+    expect(canUpgradeTextAdventureExecutionPlanV1({
+      ...candidate, failureJson: reviewerTimeout(narrativeReviewer.timeoutMs),
+    })).toBe(false)
+    expect(canUpgradeTextAdventureExecutionPlanV1({
+      ...candidate,
+      planJson: canonicalProductProductionJsonV2({ ...plan, tasks: plan.tasks.map(task => (
+        task.taskKey === narrativeReviewer.taskKey ? { ...task, timeoutMs: 180_000 } : task
+      )) }),
+      failureJson: reviewerTimeout(180_000),
+    })).toBe(true)
     expect(canUpgradeTextAdventureExecutionPlanV1({
       ...candidate,
       failureJson: canonicalProductProductionJsonV2({

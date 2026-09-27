@@ -2059,6 +2059,10 @@ export async function executionBindingDriftInvalidatedTaskKeysV1(input: {
       && (row.status === 'accepted' || row.status === 'carried-forward' || row.status === 'invalid'))
       .sort((left, right) => right.controlEpoch - left.controlEpoch || right.version - left.version)
     const latestEpoch = historical[0]?.controlEpoch
+    // A review missing from the immediately preceding epoch may have been
+    // deliberately invalidated by a manuscript edit. Its old signed producer
+    // proves who reviewed it, not that it reviewed the current manuscript.
+    if (task.kind === 'text-adventure-quality-review-batch') return []
     return latestEpoch == null ? [] : historical.filter(row => row.controlEpoch === latestEpoch)
   })
   const seeds = new Set<string>()
@@ -3450,7 +3454,7 @@ export async function recoveryInvalidatedTaskKeys(input: {
     && !Array.isArray(recovery.resolution)
     ? recovery.resolution as Record<string, unknown> : null
   if (recovery.code === 'author-revised-content' && typeof recovery.blockerKey === 'string'
-    && ['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan', 'content.main-quest-plan', 'content.adventure-side-quests', 'content.adventure-ambient-events', 'content.scene-script.act-1.part-1', 'content.scene-script.act-1.part-2', 'content.scene-script.act-2.part-1', 'content.scene-script.act-2.part-2', 'content.scene-script.act-3.part-1', 'content.scene-script.act-3.part-2'].includes(recovery.blockerKey)
+    && ['content.story-bible', 'content.cast-bible', 'content.adventure-architecture', 'content.narrative-arc-scenes', 'content.narrative-decision-plan', 'content.ending-route-plan', 'content.main-quest-plan', 'content.adventure-side-quests', 'content.adventure-ambient-events', 'content.scene-script.act-1.part-1', 'content.scene-script.act-1.part-2', 'content.scene-script.act-2.part-1', 'content.scene-script.act-2.part-2', 'content.scene-script.act-3.part-1', 'content.scene-script.act-3.part-2', 'content.dialogue-pass.act-1', 'content.dialogue-pass.act-2', 'content.dialogue-pass.act-3'].includes(recovery.blockerKey)
     && recoveryResolution?.action === 'author-edit') {
     return expandProductProductionInvalidatedTaskClosureV1(input.plan, [recovery.blockerKey])
   }
