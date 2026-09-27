@@ -556,6 +556,12 @@ export function canRetryProductProductionBlockerV1(details: ProductProductionDet
     || !!details.build && isRepairRetryableFailedProductBuildV1(details.build)
 }
 
+export function canRecoverTextAdventureProductionBudgetV1(details: ProductProductionDetailsV1): boolean {
+  return details.production.productType === 'text-adventure'
+    && details.production.status === 'producing'
+    && !!details.build && isTextAdventureBuildLifetimeBudgetExhaustedV1(details.build)
+}
+
 export function canUpgradeTextAdventureProductionPlanV1(details: ProductProductionDetailsV1): boolean {
   return details.production.productType === 'text-adventure'
     && details.production.status === 'producing'

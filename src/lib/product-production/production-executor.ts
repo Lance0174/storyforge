@@ -3115,6 +3115,7 @@ export function parseProductMediaRequirementsArtifactV2(
   brief: ProductProductionBriefV3,
   characterAnchors: readonly ProductMediaCharacterAnchorV1[] = [],
   narrative: NarrativeArtifactV1 | null = null,
+  interpretation: 'candidate' | 'frozen' = 'candidate',
 ): MediaRequirementsArtifactV1 {
   const row = record(value, 'mediaRequirements')
   exactKeys(row, ['schema', 'version', 'visual', 'audio'], 'mediaRequirements')
@@ -3224,7 +3225,8 @@ export function parseProductMediaRequirementsArtifactV2(
       'cover-opening', 'region-map', 'secondary-region-anchor',
       'important-item-primary', 'important-item-secondary', 'important-item-tertiary',
     ].includes(key(item.sceneTag, `visual[${index}].sceneTag`))
-    const characterAnchorRefs = excludesCharactersByDesign ? [] : [...new Set([
+    const characterAnchorRefs = excludesCharactersByDesign ? [] : interpretation === 'frozen'
+      ? [...new Set(suppliedCharacterRefs)].sort() : [...new Set([
       ...groundedSuppliedRefs,
       ...mentionedCharacterRefs,
       ...secondPersonPlayerRefs,
@@ -3271,7 +3273,9 @@ export function parseProductMediaRequirementsArtifactV2(
       mediaKind,
       sceneTag: key(item.sceneTag, `visual[${index}].sceneTag`),
       beatKey: frozenVisualBeat?.beatKey ?? key(item.beatKey, `visual[${index}].beatKey`),
-      prompt: brief.intent.productType === 'text-adventure'
+      // Candidate normalization is an authoring operation. Re-reading a frozen
+      // artifact must not erase quoted identities or rewrite its accepted beat.
+      prompt: brief.intent.productType === 'text-adventure' && interpretation === 'candidate'
         ? normalizeTextAdventureVisualRequirementPromptV1({
             prompt: rawPrompt,
             blueprint: textAdventureBlueprints[index] ?? null,
@@ -4141,7 +4145,14 @@ export function applyTextAdventureSceneRepairPatchV1(
   taskKey: string,
   contextText: string,
   modelPayload: JsonRecord,
+  source: 'model' | 'author-draft' = 'model',
 ): JsonRecord {
+  // A signed author revision supplies a full bundle; its normal scene parser
+  // below still verifies identities, speakers, locations and consequences.
+  // Only model rewrites are restricted to the quality review's patch targets.
+  if (source === 'author-draft'
+    && /^content\.scene-script\.act-[1-3]\.part-[1-9]\d*$/.test(taskKey)
+    && modelPayload.schema === 'storyforge.text-adventure-scene-script-bundle-artifact') return modelPayload
   const plan = textAdventureSceneRepairPatchPlanV1(taskKey, contextText)
   if (!plan) {
     if (!/^content\.scene-script\.act-[1-3]\.part-[1-9]\d*$/.test(taskKey)) {
@@ -6975,7 +6986,7 @@ async function executeModelTask(input: ProductProductionTaskExecutionInputV1, op
   try {
   const parsedRaw = parseProductionModelJsonObjectV1(output, input.task.taskKey)
   const repairMergedRaw = applyTextAdventureSceneRepairPatchV1(
-    input.task.taskKey, input.contextText, parsedRaw,
+    input.task.taskKey, input.contextText, parsedRaw, input.authorDraftJson ? 'author-draft' : 'model',
   )
   const legalized = legalizeProductionModelProtocolDefaultsV1(input.task.taskKey, repairMergedRaw, {
     narrativeStatePolicy: options.brief.intent.productType === 'text-adventure'
@@ -8030,7 +8041,7 @@ export function textAdventureVisualRepairCastConstraintV1(input: {
   const identityRepair = input.mediaKind === 'cg'
     && /对峙|角色身份|身份归属|无关角色|未登记角色|视觉锚点/.test(input.repairEvidence)
   const preferMentor = /导师|记忆|回忆|遗物/.test(`${input.scenePrompt ?? ''}\n${input.repairEvidence}`)
-  const player = input.characters.find(character => character.role === 'player') ?? null
+  const player = targetCharacters.find(character => character.role === 'player') ?? null
   const lostMentor = player
     ? input.characters.find(character => (
         character.role !== 'player'
@@ -8043,7 +8054,7 @@ export function textAdventureVisualRepairCastConstraintV1(input: {
     && /缺席|遗漏|睁开眼|醒来|未出现|没有出现/.test(input.repairEvidence)
     && /无人物|静物|不应.{0,8}入画|仅通过.{0,12}(?:遗留物|遗物)|导师.{0,8}(?:缺席|不出现|不得出现)/.test(input.repairEvidence)
   const namedNpc = identityRepair && !playerOnlyLostMentorScene
-    ? input.characters
+    ? targetCharacters
         .filter(character => character.role !== 'player' && input.repairEvidence.includes(character.name))
         .map(character => ({
           character,
@@ -8070,38 +8081,13 @@ export function textAdventureVisualRepairCastConstraintV1(input: {
     && targetCharacters.some(character => /(?:一把|单件)?折叠冰镐/.test(character.visualAnchor))
   const needsPureEnvironment = input.mediaKind === 'background'
     && /(?:无人物|纯环境|移除.{0,8}(?:人物|角色)|不得出现.{0,8}(?:人物|角色))/.test(input.repairEvidence)
-  const needsSmoothGlyphFreeRepair = /文字|字符|汉字|数字|字母|罗马|英文|符文|伪字|可读/.test(input.repairEvidence)
-  const needsPackingDocumentsIntoCoat = input.sceneTag === 'mainline-turn-act-3'
-    && /(?:图纸|笔记|航线草图).{0,32}(?:揣进怀|收入怀|放入怀|塞进怀|放进外套|收入外套)|(?:揣进怀|收入怀|放入怀|塞进怀|放进外套|收入外套).{0,32}(?:图纸|笔记|航线草图)/
-      .test(`${input.scenePrompt ?? ''}\n${input.repairEvidence}`)
-  const sceneSpecificPrompt = input.sceneTag === 'cover-opening' && needsSmoothGlyphFreeRepair
-    ? 'Wide cinematic ocean-fantasy establishing shot, full bleed. A vast foggy archipelago at twilight. Far away, exactly one narrow asymmetric copper navigation beacon appears only as a small side-view silhouette partly swallowed by dense salt fog. Its complete visible form is an irregular vertical stack of rectangular slabs, straight pipes, open lattice, and one angular amber lamp at the top. It has no front-facing ornamental surface. Sea, cloud, and mist fill all four corners. Every manufactured surface is broad, smooth, blank, and naturally weathered. No people.'
-    : input.sceneTag === 'protagonist-anchor' && targetCharacters.length === 1
-      ? `Transparent-background three-quarter-body concept art of exactly one character: ${targetCharacters[0].name}, ${targetCharacters[0].publicIdentity}. A young woman and ocean-fantasy mechanical repair apprentice with short black hair and subtle salt-gray tips, wearing a practical layered navy repair coat. Her face is clean, natural, healthy, and unpainted. Exactly one plain brass-buckle wrist guard is worn on the anatomical LEFT forearm; the right forearm has only a plain navy cloth sleeve. One small slender brass tuning key is held gently in the left hand while the left thumb touches its handle. Show head to mid-thigh with both hands visible, natural proportions, restrained expression, clean silhouette, and empty transparent surroundings.`
-    : input.sceneTag === 'major-character-anchor' && targetCharacters.length === 1
-      ? `Transparent-background frontal three-quarter-body identity concept art, head to mid-thigh, of exactly one character: ${targetCharacters[0].name}, a weathered one-armed coastal tavern owner with deep-brown skin. He faces the camera with only a slight turn, so anatomical left and right are unambiguous. His anatomical RIGHT side appears on the viewer's LEFT: the right shoulder ends at the torso in a flat pinned triangular empty sleeve cap, followed by a large uninterrupted column of transparent negative space from shoulder to mid-thigh. The character has exactly one visible arm total: his anatomical LEFT arm appears on the viewer's RIGHT, relaxed straight against his side, ending in one visible left hand. Both shoulders must remain visible. A single smooth blank silver bell hangs at his waist. He wears a collarless cream linen shirt, worn brown leather vest, dark waist apron, plain work trousers, and small brass buttons. No cup, cloth, tool, weapon, handheld object, hidden limb, crossed pose, or cropped shoulder. Use a reserved steady expression, natural proportions, a clean asymmetric silhouette, and otherwise empty transparent surroundings.`
-    : input.sceneTag === 'mainline-turn-act-1' && needsSmoothGlyphFreeRepair
-      ? 'Cinematic hand-painted medium shot inside an ocean-fantasy mechanical ruin. One young repair mechanic with short black hair and salt-gray tips wears a practical navy work coat and one plain brass-buckle wrist guard on the left forearm. The face is clean, natural, and unpainted. The mechanic holds one small slender brass tuning key near a fractured copper mechanism built from broad blank plates, straight pipes, and irregular asymmetric gears. Warm copper light crosses cold ocean-blue stone and drifting salt mist.'
-      : input.sceneTag === 'secondary-region-anchor' && Boolean(input.repairEvidence)
-        ? 'Wide cinematic hand-painted environment concept art of one remote frozen ocean archipelago during a pale storm dawn. Use one continuous icebound coastline, towering blue-white glacier walls, black volcanic rock, windblown sea spray, dense salt fog, scattered angular copper machine wreckage, and one distant narrow copper navigation beacon. The foreground is rough ice and abandoned machinery; the middle ground is frozen surf; the background is glacier and fog. The entire composition is an uninhabited natural-and-mechanical landscape with no staged foreground subject.'
-      : input.sceneTag === 'important-item-primary' && Boolean(input.repairEvidence)
-        ? 'Studio macro object portrait of exactly one open rectangular hinged brass mechanical memory casket on a plain matte dark-blue surface. It is unmistakably a box-shaped container with a lid, inner cavity, small latch, and asymmetric non-radial gears set inside the cavity. The exterior consists of broad smooth blank brass panels with natural wear. No circular body, ring, clock, watch, compass, medallion, disk, dial, scales, ticks, writing, letters, numbers, runes, labels, paper, tools, hands, people, or extra objects.'
-        : input.sceneTag === 'important-item-secondary' && Boolean(input.repairEvidence)
-          ? 'Studio macro object portrait of exactly one long slender antique brass tuning key on a plain matte dark-blue surface. The object has a straight narrow shaft, a simple T-shaped grip, and one asymmetric forked mechanical tip. It is unmistakably a key-shaped hand tool, never a clock, watch, compass, medallion, disk, badge, or circular dial. Every metal surface is smooth, blank, unengraved, and naturally worn. No people, hands, paper, labels, scales, ticks, symbols, background tools, or extra objects.'
-          : input.sceneTag === 'mainline-turn-act-2' && player && Boolean(input.repairEvidence)
-            ? 'Cinematic hand-painted close-medium ocean-fantasy story moment. Exactly one young woman and repair mechanic with short black hair and salt-gray tips sits upright on the dark-blue stone floor of a quiet copper workshop. Both dark-brown eyes are wide open, alert, and looking toward the warm light. This first waking gaze and one calm breath are the only action. Both empty hands rest naturally on the floor; one small slender brass tuning key hangs untouched from the belt. Use a practical navy work coat, one left-forearm brass wrist guard, warm worn copper pipes, irregular gears, cold stone, and thin salt mist. The face is clean and natural.'
-            : input.sceneTag === 'mainline-turn-act-3' && player && Boolean(input.repairEvidence)
-              ? needsPackingDocumentsIntoCoat
-                ? 'Cinematic hand-painted medium close side-view ocean-fantasy climax inside a sealed stone chamber beside a closed dark metal door. Exactly one young woman and repair mechanic with short black hair and salt-gray tips wears a practical navy work coat and one left-forearm brass wrist guard. Her torso and both hands are clearly visible. In one unmistakable continuous action, she uses both hands to slide two distinct blank paper objects—a torn route map and a small notebook—into the inside breast of her navy coat; both papers remain half-visible between her hands and the coat opening. Her shoulders and feet are already turned toward the door as if leaving. No hand is raised palm-out; no waving, reaching, reading, presenting, or holding papers away from the body. The action of stowing the route map and notebook into the coat is the visual focus. One small old oil lamp rests on a rough stone ledge; plain weathered stone walls, a few simple copper pipes, deep shadows, and cold blue floor light complete the sparse chamber.'
-                : 'Cinematic hand-painted close over-the-shoulder ocean-fantasy climax inside a sealed stone chamber. Exactly one young woman and repair mechanic with short black hair and salt-gray tips wears a practical navy work coat and one left-forearm brass wrist guard. Her raised left hand fills the near foreground: the separated fingertips visibly tremble in warm lamplight as she hesitates before paying the final cost. Her tense shoulders, held breath, and fixed gaze carry the weight of an irreversible decision. One small old oil lamp rests on a rough stone ledge; plain weathered stone walls, a closed dark metal door, a few simple copper pipes, deep shadows, and cold blue floor light complete the sparse chamber. The decisive trembling-hand action is the visual focus.'
-              : input.sceneTag === 'ending-consequence' && player && Boolean(input.repairEvidence)
-                ? 'Wide panoramic cinematic hand-painted ocean-fantasy aftermath at pale dawn, viewed from an elevated distant exterior vantage. ' +
-                  'The vast archipelago and open sea are the subject: dense blue-gray salt fog visibly parts into long translucent bands, revealing several distant island silhouettes and slender copper navigation beacons. ' +
-                  'Soft blue-gold light travels across the newly visible water and beacons as an abstract visual metaphor for publicly restored names and returning communal strength. ' +
-                  'Use an expansive horizon, deep atmospheric perspective, and a clear before-after boundary between retreating fog and revealed islands. ' +
-                  'This is a final consequence landscape, never an intermediate object interaction. No interior, workshop, room, foreground portrait, close-up, hands, box, chest, casket, container, key, notebook, paper, or character opening or holding any object. ' +
-                  'If a person is present at all, show only one tiny anonymous back-facing silhouette at the far edge of a cliff, subordinate to the landscape. Every manufactured surface remains blank and unmarked.'
-                : ''
+  // Scene tags name an editorial responsibility, never a character biography
+  // or a fixed action. Keep the accepted scene and let scoped feedback refine
+  // its rendering instead of substituting an unrelated canned composition.
+  const sceneSpecificPrompt = input.repairEvidence && input.scenePrompt && !needsPureEnvironment
+    && input.mediaKind !== 'character-pose' && input.mediaKind !== 'character-expression'
+    ? `${input.scenePrompt}\n只返修画面表现，保持上述冻结事件、人物与物品身份，不改变地点、行动或结局后果。`
+    : ''
   const characterPoseIdentityRepair = input.mediaKind === 'character-pose'
     && targetCharacters.length === 1
     && /身份|外观|锚点|错位|错误|缺失|不符/.test(input.repairEvidence)
@@ -8155,7 +8141,7 @@ export function textAdventureVisualRepairCastConstraintV1(input: {
       ? `电影感横幅海洋奇幻与机械遗迹插画。叙事目标：${input.scenePrompt ?? '关键真相揭露的对峙时刻'}。` +
         `画面严格只有两名已登记角色：角色 A「${player.name}」，${player.publicIdentity}，${player.visualAnchor}；` +
         `角色 B「${namedNpc.name}」，${namedNpc.publicIdentity}，${namedNpc.visualAnchor}。` +
-        '两人面对面，或隔着发光的古旧机械记忆匣对峙，视线与手势相互呼应，真相正被揭开。' +
+        '人物姿态、动作和道具只依据上述冻结叙事，不额外制造对峙或加入新物件。' +
         '单一连续场景构图，不是海报、角色卡、拼贴画、分屏或群像。服饰、道具与背景全部服从冻结身份与视觉锚点。'
       : sceneSpecificPrompt
       ? sceneSpecificPrompt
@@ -8165,14 +8151,14 @@ export function textAdventureVisualRepairCastConstraintV1(input: {
           return character
             ? `Transparent-background frontal three-quarter-body identity concept art of exactly one adult character, ${character.name}, ${character.publicIdentity}; ${character.visualAnchor}. ` +
               'Show the character from head to mid-thigh with both shoulders visible and only a slight turn, so anatomical left and right are unambiguous. The anatomical RIGHT side appears on the viewer\'s LEFT: the right shoulder terminates at the torso in a small flat triangular sewn empty sleeve cap. A large uninterrupted column of transparent negative space remains from that shoulder to mid-thigh. ' +
-              'The character has exactly one visible arm in the entire image: the anatomical LEFT arm appears on the viewer\'s RIGHT, relaxed against the side, ending in one visible left hand. Dress the character as a clean, weathered tavern owner in a simple shirt and waist apron. The belt carries exactly one small smooth blank silver bell and is otherwise completely empty. No cup, cloth, tool, weapon, handheld object, hidden limb, crossed pose, or cropped shoulder. Every cloth and bell surface is smooth and blank.'
+              'The character has exactly one visible arm in the entire image: the anatomical LEFT arm appears on the viewer\'s RIGHT, relaxed against the side, ending in one visible left hand. Clothing and props must match the frozen identity above, without adding any new item. No cup, cloth, tool, weapon, handheld object, hidden limb, crossed pose, or cropped shoulder. Every cloth and bell surface is smooth and blank.'
             : ''
         })()
       : characterPoseIdentityRepair
       ? characterPoseIdentityRepair
       : needsPureEnvironment
       ? `宽幅海洋奇幻环境概念图。${input.scenePrompt ?? '冰封岩礁、苍白盐雾与远处铜制机械潮钟塔组成北境环境。'}` +
-        '画面是无人到访的纯环境远景：前景、中景、远景全部只由岩石、浮冰、海水、盐雾、机械遗迹和一座远处潮钟塔组成。' +
+        '画面是无人到访的纯环境远景：前景、中景、远景全部服从上述已冻结地点、气候和物件，不新增地貌或建筑。' +
         '视觉重心是地貌、气候和机械遗迹，不设置可供人物站立的前景舞台，不出现角色、肖像、雕像、人形、剪影、倒影或照片。所有建筑与器物表面保持无字。'
       : '',
     negativePromptSuffix: [
@@ -8191,21 +8177,6 @@ export function textAdventureVisualRepairCastConstraintV1(input: {
         : []),
       ...(needsMissingRightArm
         ? ['右臂、右手、双臂、两条手臂、义肢、假肢、完整右衣袖、肩扛工具、冰镐、鹤嘴锄、斧、武器、第二枚银铃、刻字银铃、right arm, right hand, two arms, second arm, prosthetic arm, full right sleeve, shoulder tool, ice pick, pickaxe, axe, weapon, second bell, engraved bell']
-        : []),
-      ...(input.sceneTag === 'protagonist-anchor'
-        ? ['脸颊划痕、脸颊疤痕、交叉伤痕、红色面纹、第二个护腕、右臂护腕、厚重积雪、cheek scar, cheek mark, cross-shaped scar, face paint, second wrist guard, right-arm bracer, heavy snow']
-        : []),
-      ...(input.sceneTag === 'mainline-turn-act-2'
-        ? ['操作机械、使用钥匙、双手握钥匙、站立工作、控制面板、signboard, operating machinery, using a key, holding a key with both hands, standing at controls']
-        : []),
-      ...(input.sceneTag === 'mainline-turn-act-3'
-        ? ['开放海岸、海景、窗户、破墙、室外、长发、长袍、真人摄影、open coast, ocean view, window, broken wall, outdoors, long hair, robe, live-action photography']
-        : []),
-      ...(needsPackingDocumentsIntoCoat
-        ? ['空手举掌、掌心朝外、挥手、阅读图纸、展示图纸、双手把纸举离身体、empty raised hand, palm-out gesture, waving, reading papers, presenting papers, holding papers away from the coat']
-        : []),
-      ...(input.sceneTag === 'ending-consequence'
-        ? ['室内、工坊、房间、近景人物、人物肖像、手、箱子、宝箱、匣子、机械记忆匣、容器、钥匙、笔记本、纸张、打开物品、手持物品、interior, workshop, room, close-up character, portrait, hands, box, chest, casket, container, key, notebook, paper, opening an object, holding an object']
         : []),
       ...(needsPureEnvironment
         ? ['人物、角色、女性、男性、旅行者、观察者、人形、肖像、雕像、剪影、倒影、照片、character, person, woman, man, traveler, human figure, silhouette, portrait, statue, reflection']
@@ -8328,14 +8299,16 @@ async function executeVisualTask(input: ProductProductionTaskExecutionInputV1, o
   const requirements = parseProductMediaRequirementsArtifactV2(
     artifactPayload(input, 'media.requirements'),
     options.brief,
-    cast ? textAdventureCharacterAnchors(cast) : [],
+    cast ? textAdventureCharacterAnchors(cast) : [], null, 'frozen',
   )
+  let visualStyleContract = ''
   if (cast) {
     const visualBible = parseTextAdventureVisualBibleArtifactV1({
       value: artifactPayload(input, 'media.visual-bible'),
       cast,
       expectedAssetKeys: requirements.visual.map(requirement => requirement.artifactKey),
     })
+    visualStyleContract = `冻结美术风格：${visualBible.style}。色板：${visualBible.palette.join('、')}。构图：${visualBible.compositionRules.join('；')}。连续性：${visualBible.continuityRules.join('；')}。\n`
     parseTextAdventureMediaAnchorDecisionArtifactV1({
       value: artifactPayload(input, 'media.anchor-decision'),
       visualBible,
@@ -8465,8 +8438,8 @@ async function executeVisualTask(input: ProductProductionTaskExecutionInputV1, o
       ? '地球、世界地图、地球仪、真实大陆、真实海岸线、北美洲、南美洲、欧洲、非洲、亚洲、大洋洲、罗盘玫瑰、第二个箭头、第二条路线、装饰边框、嵌套小图、雪花、冰晶、角花、刻度、圆盘、光晕、碎岛、卫星岛、Earth, world map, globe, real continent, real coastline, compass rose, duplicate arrow, second route, decorative border, inset map, snowflake, ice crystal, corner ornament, tick marks, dial, glow, satellite islet, extra island'
       : ''
     const providerPromptOverride = repairCastConstraint.promptOverride || glyphSafeMapPrompt
-    const providerPrompt = `${providerPromptOverride || baseProviderPrompt}` +
-      `${providerPromptOverride ? '' : repairInstruction}${repairCastConstraint.promptSuffix}` + (repairRequiresGlyphSuppression
+    const providerPrompt = `${visualStyleContract}${providerPromptOverride || baseProviderPrompt}` +
+      `${repairInstruction}${repairCastConstraint.promptSuffix}` + (repairRequiresGlyphSuppression
       ? providerPromptOverride
         ? '\nABSOLUTE SURFACE DESIGN: every manufactured surface is one uninterrupted field of blank material. Communicate all information only through large non-repeating silhouettes, color blocks, light, volume, rivets, and natural wear.'
         : '\nABSOLUTE REPAIR CONSTRAINT: blank artifact surfaces; no readable text, letters, numbers, pseudo-text, runes, labels, logos, signatures, or character-like marks. Do not replace forbidden text with invented glyphs.'
@@ -8612,7 +8585,7 @@ async function executeAudioTask(input: ProductProductionTaskExecutionInputV1, op
   mediaCapabilities: ReadonlyMap<string, ResolvedProductMediaCapabilityV1>
 }): Promise<ProductProductionTaskExecutionResultV1> {
   const startedAt = performance.now()
-  const requirements = parseProductMediaRequirementsArtifactV2(artifactPayload(input, 'media.requirements'), options.brief)
+  const requirements = parseProductMediaRequirementsArtifactV2(artifactPayload(input, 'media.requirements'), options.brief, [], null, 'frozen')
   const byKey = new Map(requirements.audio.map(item => [item.artifactKey, item]))
   const artifacts: ProductProductionTaskArtifactV1[] = []
   let storageBytes = 0
@@ -8824,7 +8797,7 @@ async function executeTextAdventureMediaAuditTask(
     allowedResourceKeys: options.brief.source.selection.resourceKeys,
   })
   const requirements = parseProductMediaRequirementsArtifactV2(
-    artifactPayload(input, 'media.requirements'), options.brief, textAdventureCharacterAnchors(cast),
+    artifactPayload(input, 'media.requirements'), options.brief, textAdventureCharacterAnchors(cast), null, 'frozen',
   )
   parseTextAdventureVisualBibleArtifactV1({
     value: artifactPayload(input, 'media.visual-bible'), cast,
@@ -9441,7 +9414,7 @@ async function executeTextAdventureVisualQualityReviewTask(
     allowedResourceKeys: options.brief.source.selection.resourceKeys,
   })
   const mediaRequirements = parseProductMediaRequirementsArtifactV2(
-    artifactPayload(input, 'media.requirements'), options.brief, textAdventureCharacterAnchors(cast),
+    artifactPayload(input, 'media.requirements'), options.brief, textAdventureCharacterAnchors(cast), null, 'frozen',
   )
   const requirementByArtifactKey = new Map(mediaRequirements.visual.map(requirement => (
     [requirement.artifactKey, requirement] as const
@@ -9948,7 +9921,7 @@ async function executeIntegrationTask(input: ProductProductionTaskExecutionInput
   const mediaRequirements = parseProductMediaRequirementsArtifactV2(
     artifactPayload(input, 'media.requirements'),
     options.brief,
-    textAdventureCast ? textAdventureCharacterAnchors(textAdventureCast) : [],
+    textAdventureCast ? textAdventureCharacterAnchors(textAdventureCast) : [], null, 'frozen',
   )
   let textAdventureMediaAuditHash = ''
   let textAdventureVisualReviewHash = ''
@@ -10564,7 +10537,7 @@ async function executeTextAdventureVisualBibleTask(
     allowedResourceKeys: brief.source.selection.resourceKeys,
   })
   const requirements = parseProductMediaRequirementsArtifactV2(
-    artifactPayload(input, 'media.requirements'), brief, textAdventureCharacterAnchors(cast),
+    artifactPayload(input, 'media.requirements'), brief, textAdventureCharacterAnchors(cast), null, 'frozen',
   )
   const visualBible = compileTextAdventureVisualBibleV1({ architecture, cast, mediaRequirements: requirements })
   return {

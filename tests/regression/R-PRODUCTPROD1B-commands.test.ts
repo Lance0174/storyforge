@@ -10,6 +10,7 @@ import {
 import { draftProductProductionBriefV3, suggestProductStartingPoints } from '../../src/lib/product-production/consultation'
 import {
   beginProductProductionEvolutionV1,
+  canRecoverTextAdventureProductionBudgetV1,
   readProductProductionDetailsV1,
   upgradeTextAdventureProductionPlanV1,
 } from '../../src/lib/product-production/service'
@@ -739,7 +740,7 @@ describe('PRODUCTPROD-1B · user command control plane', () => {
     })
   })
 
-  it('预算耗尽时创建不可变恢复子 Build，并只继承已签收的专业生产工件', async () => {
+  it.each(['modelCalls=64/64', 'mediaCalls=13/12'])('预算耗尽 %s 时创建不可变恢复子 Build，并只继承已签收的专业生产工件', async exhaustedUsage => {
     const f = await fixture('text-adventure')
     const lowBudgetBrief = parseProductProductionBriefV3({
       ...f.brief,
@@ -795,9 +796,15 @@ describe('PRODUCTPROD-1B · user command control plane', () => {
       planJson: canonicalProductProductionJsonV2(parentPlan), planHash: parentPlanHash,
       failureJson: JSON.stringify({
         taskKey: 'content.dialogue-pass.act-3', code: 'task-executor-failed',
-        detail: 'Build lifetime budget 不足:modelCalls=64/64',
+        detail: `Build lifetime budget 不足:${exhaustedUsage}`,
       }),
     })
+
+    const exhaustedDetails = await readProductProductionDetailsV1(f.scope, created.productionId)
+    expect(canRecoverTextAdventureProductionBudgetV1(exhaustedDetails)).toBe(true)
+    expect(canRecoverTextAdventureProductionBudgetV1({ ...exhaustedDetails,
+      production: { ...exhaustedDetails.production, status: 'paused' },
+    })).toBe(false)
 
     const evolved = await beginProductProductionEvolutionV1({
       scope: f.scope, productionId: created.productionId,

@@ -10,6 +10,8 @@ import {
 } from '../../src/lib/product-production/consultation'
 import { parseProductProductionBriefV3 } from '../../src/lib/product-production/contracts'
 import { executeProductProductionCommand } from '../../src/lib/product-production/commands'
+import { resolveProductProductionTaskRecoveryPolicyV1 } from '../../src/lib/product-production/recovery-policy'
+import { parseProductProductionPlanV3 } from '../../src/lib/product-production/plan'
 import { hashProductProductionValueV2 } from '../../src/lib/product-production/hash'
 import type { ProductProductionBriefV3, WorkspaceScope } from '../../src/lib/types'
 import { seedCurrentProductWorld } from '../helpers/current-product-world'
@@ -255,6 +257,36 @@ describe('PRODUCT-PROD-1E · recovery policy UI', () => {
   })
 
   afterAll(() => db.close())
+
+  it.each(['content.quest-script.main.act-2.single', 'content.quest-script.supplemental'])('%s 失败后可提交完整修订稿，错误Skill身份不能获得修订权', async taskKey => {
+    const f = await seedTextAdventureMediaRevisionWorkbenchV1('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X8WgWQAAAABJRU5ErkJggg==')
+    const build = (await db.productBuilds.get(f.parentBuildId))!
+    const task = parseProductProductionPlanV3(build.planJson).tasks.find(row => row.taskKey === taskKey)!
+    expect(resolveProductProductionTaskRecoveryPolicyV1({ productType: 'text-adventure', task })).toMatchObject({
+      repairNoteAllowed: true, authorDraftAllowed: true, repairFeedbackContextAllowed: true,
+    })
+    expect(resolveProductProductionTaskRecoveryPolicyV1({ productType: 'text-adventure',
+      task: { ...task, skillId: 'text-adventure.scene-script.v1' },
+    }).authorDraftAllowed).toBe(false)
+    expect(resolveProductProductionTaskRecoveryPolicyV1({ productType: 'text-adventure',
+      task: { ...task, executionMode: 'deterministic' },
+    }).authorDraftAllowed).toBe(false)
+    await db.productBuilds.update(f.parentBuildId, {
+      status: 'recovery-required',
+      failureJson: JSON.stringify({ taskKey, code: 'task-executor-failed', detail: '结算文案偏离冻结目标' }),
+    })
+    await db.productProductions.update(f.productionId, { status: 'producing' })
+    await act(async () => root.render(createElement(ProductProductionStudio, {
+      scope: f.scope, initialProductionId: f.productionId,
+      initialProduct: 'text-adventure', allowedProducts: ['text-adventure'],
+    })))
+    await waitFor(() => expect(textarea(host, '作者修订的完整任务 JSON')).toBeTruthy())
+    await setTextareaValue(textarea(host, '作者修订的完整任务 JSON')!, '{"schema":"author-quest-candidate"}')
+    await act(async () => button(host, '修正后继续制作').click())
+    await waitFor(() => expect(serviceMocks.retryBlocker).toHaveBeenCalledWith(expect.objectContaining({
+      authorDraftJson: '{"schema":"author-quest-candidate"}',
+    })))
+  })
 
   it('美术规划候选失败可在原 Build 修订 JSON，同时保留显式重建视觉合同入口', async () => {
     const f = await seedTextAdventureMediaRevisionWorkbenchV1('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+X8WgWQAAAABJRU5ErkJggg==')

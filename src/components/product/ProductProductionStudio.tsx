@@ -10,6 +10,7 @@ import {
   authorizeProductProductionStartV1,
   archiveProductProductionV1,
   beginProductProductionEvolutionV1,
+  canRecoverTextAdventureProductionBudgetV1,
   canRepairTextAdventureRuntimeCopyV1,
   canRepairTextAdventureVisualContractV1,
   canUpgradeTextAdventureProductionPlanV1,
@@ -1498,7 +1499,7 @@ export default function ProductProductionStudio(props: {
     const created = await beginProductProductionEvolutionV1({
       scope: props.scope,
       productionId: details.production.id!,
-      userText: '当前 Build 已耗尽原作者授权的模型预算。仅扩充专业文字冒险生产预算并续建；继承所有可证明未变化且已签收的工件，不修改剧情、玩法、世界来源或媒资范围。',
+      userText: '当前 Build 已达到冻结的生产用量上限。创建子 Build 续建；继承所有可证明未变化且已签收的工件，不修改剧情、玩法、世界来源或媒资范围。',
       affectedLanes: ['production-budget'],
     })
     await refresh(details.production.id)
@@ -1789,8 +1790,7 @@ export default function ProductProductionStudio(props: {
   }, [details?.brief, details?.executionBrief])
   const modelBudgetExhausted = !!progress && !!selectedBrief
     && progress.budget.usage.modelCalls >= selectedBrief.productionBudget.maximumModelCalls
-  const canRecoverProductionBudget = canRetryBlocker && modelBudgetExhausted
-    && details?.production.productType === 'text-adventure'
+  const canRecoverProductionBudget = !!details && canRecoverTextAdventureProductionBudgetV1(details)
   const commercialPerformanceRequired = selectedBrief?.qualityProfile === 'commercial-candidate'
   const commercialTextAdventureImageMinimum = selectedBrief?.qualityProfile === 'commercial-candidate'
     && selectedBrief.intent.productType === 'text-adventure' && selectedBrief.textAdventure
@@ -2094,7 +2094,7 @@ export default function ProductProductionStudio(props: {
             {canUpgradeExecutionPlan && <button disabled={busy || productionRunning} onClick={upgradeExecutionPlan} className="flex items-center gap-2 rounded bg-accent px-4 py-2 text-xs text-white"><GitBranch className="h-3.5 w-3.5" />生成执行计划升级 Brief</button>}
             {canRepairVisualContract && <button disabled={busy || productionRunning} onClick={repairVisualContract} className="flex items-center gap-2 rounded bg-accent px-4 py-2 text-xs text-white"><GitBranch className="h-3.5 w-3.5" />重建媒资规划 Brief</button>}
             {canRepairRuntimeCopy && <button disabled={busy || productionRunning} onClick={repairRuntimeCopy} className="flex items-center gap-2 rounded bg-accent px-4 py-2 text-xs text-white"><GitBranch className="h-3.5 w-3.5" />重建公开文案运行包</button>}
-            {canRetryBlocker && !modelBudgetExhausted && !canUpgradeExecutionPlan && !canRepairRuntimeCopy && <button disabled={busy || productionRunning || (providerReservationBlocked && !unknownResultDisposition)} onClick={retryBlocker} className="flex items-center gap-2 rounded bg-accent px-4 py-2 text-xs text-white disabled:opacity-40"><RefreshCw className="h-3.5 w-3.5" />{recoveryPolicy?.repairNoteAllowed ? '修正后继续制作' : '重试失败任务'}</button>}
+            {canRetryBlocker && !modelBudgetExhausted && !canRecoverProductionBudget && !canUpgradeExecutionPlan && !canRepairRuntimeCopy && <button disabled={busy || productionRunning || (providerReservationBlocked && !unknownResultDisposition)} onClick={retryBlocker} className="flex items-center gap-2 rounded bg-accent px-4 py-2 text-xs text-white disabled:opacity-40"><RefreshCw className="h-3.5 w-3.5" />{recoveryPolicy?.repairNoteAllowed ? '修正后继续制作' : '重试失败任务'}</button>}
             {importedProofRecoveryRequired && <button disabled={busy || productionRunning} onClick={recoverImportedProofs} data-testid="product-production-recover-import-proof" className="flex items-center gap-2 rounded border border-warning/50 bg-warning/10 px-4 py-2 text-xs text-text-main disabled:opacity-40"><ShieldCheck className="h-3.5 w-3.5" />复验导入生产证明</button>}
             {details.build && ['preview-ready', 'release-ready', 'released'].includes(details.build.status) && <button disabled={busy || productionRunning || importedProofRecoveryRequired} onClick={preview} className="flex items-center gap-2 rounded border border-accent/40 bg-accent/10 px-4 py-2 text-xs text-accent"><Play className="h-3.5 w-3.5" />{details.build.status === 'released' ? '试玩此 Build' : '试玩未发布 Build'}</button>}
             {details.build?.status === 'release-ready' && !isTextOpenWorldCreator && <button disabled={busy || productionRunning || (commercialPerformanceRequired && !commercialQualityPassed)} onClick={publish} className="flex items-center gap-2 rounded bg-success px-4 py-2 text-xs text-white disabled:opacity-40"><Rocket className="h-3.5 w-3.5" />复验并原子发布</button>}

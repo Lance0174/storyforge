@@ -1623,6 +1623,25 @@ describe('R-PRODUCTPROD-1F · provider JSON response normalization', () => {
     expect(constraint.negativePromptSuffix).toContain('second character')
   })
 
+  it('图片职责不能覆盖当前人物身份或把室内结局改成海上全景', () => {
+    const mentor = { key: 'character.mentor', name: '沉砾', role: 'major-npc' as const,
+      publicIdentity: '58 岁的修复师导师', visualAnchor: '高瘦、灰白胡茬，双臂健全，右手两根铜制义指，旧工装' }
+    const portrait = textAdventureVisualRepairCastConstraintV1({
+      mediaKind: 'character-pose', sceneTag: 'major-character-anchor',
+      anchorRefs: [mentor.key], characters: [mentor], repairEvidence: '',
+    })
+    expect(portrait.promptOverride).not.toMatch(/one-armed|tavern|silver bell|missing arm/)
+    expect(portrait.negativePromptSuffix).not.toContain('right arm')
+    const scene = '沉砾把灯拨近，岚舟合上笔记，窗外传来钟声。'
+    const ending = textAdventureVisualRepairCastConstraintV1({
+      mediaKind: 'cg', sceneTag: 'ending-consequence', scenePrompt: scene,
+      characters: [mentor, { key: 'character.player', name: '岚舟', role: 'player', publicIdentity: '学徒', visualAnchor: '深蓝工装' }],
+      repairEvidence: '纸张上出现了伪文字，需保持笔记合拢。',
+    })
+    expect(ending.promptOverride).not.toMatch(/aftermath|publicly restored names|anonymous back-facing/)
+    expect(ending.negativePromptSuffix).not.toMatch(/notebook|interior|hands|笔记本/)
+  })
+
   it('角色返修把彩色边缘和额外肩甲转成正向轮廓约束与负向禁止项', () => {
     const constraint = textAdventureVisualRepairCastConstraintV1({
       mediaKind: 'character-pose',
@@ -1662,13 +1681,13 @@ describe('R-PRODUCTPROD-1F · provider JSON response normalization', () => {
         visualAnchor: '深褐色皮肤，失去右臂，腰间系一枚无字银铃',
       }],
     })
-    expect(portrait.promptOverride).toContain('right shoulder ends at the torso in a flat pinned triangular empty sleeve cap')
+    expect(portrait.promptOverride).toContain('right shoulder terminates at the torso in a small flat triangular sewn empty sleeve cap')
     expect(portrait.promptOverride).toContain("anatomical RIGHT side appears on the viewer's LEFT")
-    expect(portrait.promptOverride).toContain('exactly one visible arm total')
+    expect(portrait.promptOverride).toContain('exactly one visible arm in the entire image')
     expect(portrait.promptOverride).toContain('one visible left hand')
     expect(portrait.promptOverride).toContain('head to mid-thigh')
-    expect(portrait.promptOverride).toContain('weathered one-armed coastal tavern owner')
-    expect(portrait.promptOverride).toContain('A single smooth blank silver bell')
+    expect(portrait.promptOverride).toContain('涅洛, 退役领航员')
+    expect(portrait.promptOverride).toContain('腰间系一枚无字银铃')
     expect(portrait.promptOverride).toContain('No cup, cloth, tool')
     expect(portrait.promptOverride).not.toContain('wipes a plain clay cup')
     expect(portrait.negativePromptSuffix).toContain('two arms')
@@ -1731,77 +1750,31 @@ describe('R-PRODUCTPROD-1F · provider JSON response normalization', () => {
     expect(support.promptOverride).not.toContain('失去右臂')
   })
 
-  it('反复出现字形时按素材职责改用无字专用构图，且地图数量和边框建议可正向编译', () => {
-    const cover = textAdventureVisualRepairCastConstraintV1({
-      mediaKind: 'background', sceneTag: 'cover-opening',
-      scenePrompt: '远方隐约可见一座老潮钟。',
-      repairEvidence: '钟面出现可读罗马数字，违反无文字约束。', characters: [],
-    })
-    expect(cover.promptOverride).toContain('exactly one narrow asymmetric copper navigation beacon')
-    expect(cover.promptOverride).toContain('irregular vertical stack of rectangular slabs')
-    expect(cover.promptOverride).toContain('no front-facing ornamental surface')
-
-    const key = textAdventureVisualRepairCastConstraintV1({
-      mediaKind: 'cg', sceneTag: 'important-item-secondary',
-      repairEvidence: '物品变成带罗马数字的圆形钟面，不像调音钥匙。', characters: [],
-    })
-    expect(key.promptOverride).toContain('exactly one long slender antique brass tuning key')
-    expect(key.promptOverride).toContain('never a clock, watch, compass')
-    expect(positiveImageRepairDirectiveV1('仅保留三个主要岛屿，删除四个小型副岛。', 'composition'))
-      .toContain('严格只出现三个')
-    expect(positiveImageRepairDirectiveV1('移除所有冰晶边框装饰，保持海洋背景开阔无边缘元素。', 'style'))
-      .toContain('自然延伸到画布四边')
+  it('场景返修保留每个冻结动作和物品，地图约束仍可正向编译', () => {
+    const scenes = [
+      ['cover-opening', 'background', '远方隐约可见一座老潮钟。'],
+      ['important-item-secondary', 'cg', '一把调音钥匙放在布面上。'],
+      ['mainline-turn-act-1', 'cg', '档案员翻开登记册，露出缺名的空栏。'],
+      ['mainline-turn-act-2', 'cg', '学徒用纸与炭条辨认墙上旧凿痕。'],
+      ['mainline-turn-act-3', 'cg', '导师翻开工装，右手两根铜制义指碰到台面。'],
+      ['ending-consequence', 'cg', '导师拨近灯火，学徒合拢笔记，窗外传来钟声。'],
+    ] as const
+    for (const [sceneTag, mediaKind, scenePrompt] of scenes) {
+      const result = textAdventureVisualRepairCastConstraintV1({
+        sceneTag, mediaKind, scenePrompt, characters: [],
+        repairEvidence: '物件表面出现伪文字，保留动作与物品，去掉伪文字。',
+      })
+      expect(result.promptOverride).toContain(scenePrompt)
+      expect(result.promptOverride).not.toMatch(/one-armed|young woman|waking gaze|publicly restored names/)
+      expect(result.negativePromptSuffix).not.toMatch(/notebook|interior|standing at controls/)
+    }
     const map = textAdventureGlyphSafeMapRepairPromptV1({
-      originalPrompt: '无文字示意地图。中央、东端、西北端三片岛群，以虚线航道连接三座潮钟，并从东南角画出方向箭头。',
+      originalPrompt: '无文字示意地图，三个岛群通过一条航路连接；东南角一个方向箭头。',
       palette: ['#0a1a2e', '#3a5f7a', '#c8a86e'],
     })
-    expect(map).toContain('complete outer fifty percent and every corner show only the same opaque dark navy background')
-    expect(map).toContain('exactly one small pale-gold triangular arrowhead')
     expect(map).toContain('These three cloche pictograms are the complete symbol set')
-
-    const climax = textAdventureVisualRepairCastConstraintV1({
-      mediaKind: 'cg', sceneTag: 'mainline-turn-act-3',
-      scenePrompt: '岚舟的手指微微颤抖，她预感到接下来会揭示最终真相。',
-      repairEvidence: '画面站姿平静，缺少手指微微颤抖的行动瞬间，并出现未登记控制台。',
-      characters: [{
-        key: 'character.player', name: '岚舟', role: 'player', publicIdentity: '守灯人与修复师',
-        visualAnchor: '短黑发、盐灰发梢、深蓝修复工外套与铜扣护腕',
-      }],
-    })
-    expect(climax.promptOverride).toContain('separated fingertips visibly tremble')
-    expect(climax.promptOverride).toContain('One small old oil lamp')
-    expect(climax.promptOverride).toContain('sparse chamber')
-
-    const packingClimax = textAdventureVisualRepairCastConstraintV1({
-      mediaKind: 'cg', sceneTag: 'mainline-turn-act-3',
-      scenePrompt: '岚舟走向门口，把图纸和笔记都揣进怀里。',
-      repairEvidence: '画面把角色画成空手举掌；必须清晰呈现把航线草图和笔记收入外套怀中的动作。',
-      characters: [{
-        key: 'character.player', name: '岚舟', role: 'player', publicIdentity: '守灯人与修复师',
-        visualAnchor: '短黑发、盐灰发梢、深蓝修复工外套与铜扣护腕',
-      }],
-    })
-    expect(packingClimax.promptOverride).toContain('slide two distinct blank paper objects')
-    expect(packingClimax.promptOverride).toContain('both papers remain half-visible')
-    expect(packingClimax.promptOverride).toContain('No hand is raised palm-out')
-    expect(packingClimax.promptOverride).not.toContain('fingertips visibly tremble')
-    expect(packingClimax.negativePromptSuffix).toContain('empty raised hand')
-
-    const ending = textAdventureVisualRepairCastConstraintV1({
-      mediaKind: 'cg', sceneTag: 'ending-consequence',
-      scenePrompt: '雾潮开始退散，被公开的名字重新获得力量。',
-      repairEvidence: '错误画成角色打开机械记忆匣的室内近景；必须改成雾潮消散、群岛重见天日的开阔结局远景。',
-      characters: [{
-        key: 'character.player', name: '岚舟', role: 'player', publicIdentity: '守灯人与修复师',
-        visualAnchor: '短黑发、盐灰发梢、深蓝修复工外套与铜扣护腕',
-      }],
-    })
-    expect(ending.promptOverride).toContain('Wide panoramic cinematic hand-painted ocean-fantasy aftermath')
-    expect(ending.promptOverride).toContain('dense blue-gray salt fog visibly parts')
-    expect(ending.promptOverride).toContain('final consequence landscape')
-    expect(ending.promptOverride).not.toContain('memory casket')
-    expect(ending.negativePromptSuffix).toContain('机械记忆匣')
-    expect(ending.negativePromptSuffix).toContain('opening an object')
+    expect(positiveImageRepairDirectiveV1('仅保留三个主要岛屿，删除四个小型副岛。', 'composition'))
+      .toContain('严格只出现三个')
   })
 
   it('眉部细疤作为微细节不可单独阻塞 CG 或角色立绘', () => {
@@ -4123,7 +4096,10 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     expect(completeBeats.visual[11].prompt).toContain('却无法重新感觉那一刻')
     expect(completeBeats.visual[11].prompt).toContain('回忆、猜测和内心感受不得改画成同场人物或新增事件')
     expect(completeBeats.visual[11].characterAnchorRefs).toEqual(['character.npc.1', 'character.player'])
-    const providerRequirements = parseProductMediaRequirementsArtifactV2(completeBeats, owned.brief, completeBeatAnchors)
+    const providerRequirements = parseProductMediaRequirementsArtifactV2(completeBeats, owned.brief, completeBeatAnchors, null, 'frozen')
+    expect(providerRequirements.visual.map(row => row.prompt)).toEqual(completeBeats.visual.map(row => row.prompt))
+    expect(providerRequirements.visual[5].prompt).toContain('机械记忆匣')
+    expect(providerRequirements.visual[10].prompt).toContain('调音钥匙')
     expect(providerRequirements.visual[9].characterAnchorRefs).toEqual(completeBeats.visual[9].characterAnchorRefs)
     expect(providerRequirements.visual[11].characterAnchorRefs).toEqual(completeBeats.visual[11].characterAnchorRefs)
     // A real but cross-act or non-ending reference cannot override the role.
@@ -5784,6 +5760,10 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
       choices: [{ ...baselinePayload.choices[0], text: '立即敲响警钟' }],
     })
     expect(repaired.scenes[0]).toEqual(baselinePayload.scenes[0])
+    // The author workbench submits a complete, explicitly authorized bundle.
+    // Model output must still obey the bounded patch protocol in this context.
+    expect(() => applyTextAdventureSceneRepairPatchV1(taskKey, feedback, repaired)).toThrow('sceneRepairPatch')
+    expect(applyTextAdventureSceneRepairPatchV1(taskKey, feedback, repaired, 'author-draft')).toEqual(repaired)
     expect(() => applyTextAdventureSceneRepairPatchV1(taskKey, feedback, {
       schema: 'storyforge.text-adventure-scene-repair-patch-artifact', version: 1,
       patches: [{
