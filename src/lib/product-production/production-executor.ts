@@ -2898,7 +2898,7 @@ function textAdventurePromptVisuallyDepictsCharacterV1(
     new RegExp(`${name}(?:的(?:目击)?证词|的日志|的档案|的记录|的回忆|的记忆|留下|遗留|保存|曾经|当年)`),
   ]
   const presentAction = [
-    new RegExp(`${name}[^。；\\n]{0,36}(?:将|把|站|坐|走|跑|跪|抵达|进入|发现|面对|转身|抬手|伸手|举起|取出|翻开|递出|递给|写下|指向|拿|握|持|穿|靠|睁开眼|睁眼|醒来|苏醒|起身|收回手|触碰|触摸|捧|抱|感受|面向|凝视|表情|眼神|脸|面部|身影|侧面|正面|背影|手臂|双手)`),
+    new RegExp(`${name}[^。；\\n]{0,36}(?:将|把|站|坐|走|跑|跪|抵达|进入|发现|面对|转身|抬手|伸手|举起|取出|翻开|递出|递给|写下|指向|拿|握|持|穿|靠|扶|支撑|睁开眼|睁眼|醒来|苏醒|起身|收回手|触碰|触摸|捧|抱|感受|面向|凝视|表情|眼神|脸|面部|身影|侧面|正面|背影|手臂|双手)`),
     new RegExp(`${name}在(?:画面|前景|中景|近景|远景|场景|房间|大厅|工坊|钟楼|灯塔|海岸|甲板|道路)`),
     new RegExp(`(?:画面|前景|中景|近景|远景|中心|构图)[^。；\\n]{0,64}${name}`),
     new RegExp(`${name}[^。；\\n]{0,24}(?:与|和|同)[^。；\\n]{0,24}(?:并肩|对峙|交谈|行动|站立)`),
@@ -3218,7 +3218,7 @@ export function parseProductMediaRequirementsArtifactV2(
           textAdventurePromptVisuallyDepictsCharacterV1(characterGroundingPrompt, character.name)
         )).map(character => character.characterKey)
       : []
-    const secondPersonPlayerRefs = !isCharacter && /(?:^|[，。；！？\s])你(?:将|要|正|已|在|走|站|伸|拿|握|转|看|按|打开|合上|取出|翻开|抬|低头|借|选择|决定)|你(?:的)?(?:手(?:里|中)|脸)/u.test(characterGroundingPrompt)
+    const secondPersonPlayerRefs = !isCharacter && /(?:^|[，。；！？\s])你(?:猛地|缓缓|慢慢|轻轻|小心)?(?:将|要|正|已|在|走|踏|推|站|靠|跪|蹲|睁|伸|拿|握|转|看|按|打开|合上|取出|翻开|抬|低头|借|选择|决定)|你从[^。；！？]{0,16}(?:取出|拿出|抽出|掏出)|你(?:的)?(?:手(?:里|中)|脸)/u.test(characterGroundingPrompt)
       ? characterAnchors.filter(character => character.role === 'player').map(character => character.characterKey)
       : []
     const excludesCharactersByDesign = [

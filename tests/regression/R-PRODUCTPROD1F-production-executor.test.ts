@@ -4103,6 +4103,31 @@ describe('R-PRODUCTPROD-1F · configured formal production executor', () => {
     expect(providerRequirements.visual[10].prompt).toContain('调音钥匙')
     expect(providerRequirements.visual[9].characterAnchorRefs).toEqual(completeBeats.visual[9].characterAnchorRefs)
     expect(providerRequirements.visual[11].characterAnchorRefs).toEqual(completeBeats.visual[11].characterAnchorRefs)
+    for (const text of [
+      '你猛地睁开眼睛，单膝跪在铁板上，掌心紧贴黄铜管。',
+      '你从怀里取出纸和炭笔，开始拓印。',
+      '你靠在铜轨栏杆上，拿起调音钥匙。',
+    ]) {
+      const secondPerson = structuredClone(completeBeatNarrative)
+      secondPerson.beats.find(beat => beat.beatKey === 'beat.act-1.curated')!.text = text
+      const parsed = parseProductMediaRequirementsArtifactV2(
+        completeBeatRequirements, owned.brief, completeBeatAnchors, secondPerson as never,
+      )
+      expect(parsed.visual[3].characterAnchorRefs, text).toEqual(['character.player'])
+    }
+    for (const text of ['你从未见过沉砾，只听说过他的名字。', '档案记载沉砾当年扶着台沿，支撑疲惫的身体。']) {
+      const historicalOnly = structuredClone(completeBeatNarrative)
+      historicalOnly.beats.find(beat => beat.beatKey === 'beat.act-1.curated')!.text = text
+      expect(parseProductMediaRequirementsArtifactV2(
+        completeBeatRequirements, owned.brief, completeBeatAnchors, historicalOnly as never,
+      ).visual[3].characterAnchorRefs, text).toEqual([])
+    }
+    const reunion = structuredClone(completeBeatNarrative)
+    reunion.beats.find(beat => beat.beatKey === 'beat.act-3.coat')!.text =
+      '你踏入地下的记忆海。沉砾仍然活着，只是疲惫得需要借助台沿支撑身体。'
+    expect(parseProductMediaRequirementsArtifactV2(
+      completeBeatRequirements, owned.brief, completeBeatAnchors, reunion as never,
+    ).visual[9].characterAnchorRefs).toEqual(['character.npc.1', 'character.player'])
     // A real but cross-act or non-ending reference cannot override the role.
     curatedRequirements.visual[3].beatKey = 'beat.act-2.003'
     curatedRequirements.visual[11].beatKey = 'beat.act-1.curated'
