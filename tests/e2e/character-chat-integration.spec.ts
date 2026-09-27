@@ -41,7 +41,10 @@ test('private reply stays hidden, messages persist, checkpoints and branches rem
     await page.goto(`./chat/play?${query}`);
     await page.getByPlaceholder('对当前场景中的角色说话…').fill('浏览器玩家消息');
     await page.getByRole('button', { name: '仅保存消息', exact: true }).click();
-    await expect(page.getByText('浏览器玩家消息', { exact: true })).toBeVisible({ timeout: 15000 });
+    // A text locator also matches the pending textarea value. Wait for the saved
+    // message and completed send before reloading, not the busy disabled button.
+    await expect(page.locator('article').getByText('浏览器玩家消息', { exact: true })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByPlaceholder('对当前场景中的角色说话…')).toHaveValue('');
     await expect(page.getByRole('button', { name: '仅保存消息', exact: true })).toBeDisabled();
     await page.reload();
     await expect(page.getByText('浏览器玩家消息', { exact: true })).toBeVisible({ timeout: 15000 });

@@ -7,7 +7,7 @@ import { useCharacterStore } from '../../stores/character'
 import { useWorldGroupStore } from '../../stores/world-group'
 import { useMasterCopilot, type PendingMasterCandidate } from '../agent/useMasterCopilot'
 import PromptRunPanel from '../shared/PromptRunPanel'
-import { CTextarea } from '../shared/CompositionInput'
+import CandidateDraftEditor from '../agent/CandidateDraftEditor'
 import type {
   Project, Character, CharacterMoralAxis, CharacterOrderAxis, CharacterRoleWeight,
 } from '../../lib/types'
@@ -28,6 +28,7 @@ import {
   useInitialRecordTarget,
 } from '../shared/initial-record-target'
 import HarnessEvidencePanel from '../agent/HarnessEvidencePanel'
+import CopilotGenerationStatus from '../agent/CopilotGenerationStatus'
 
 // ── 常量 ───────────────────────────────────────────────────────
 
@@ -190,7 +191,7 @@ export default function CharacterPanel({ project, view = 'generator', initialCha
               {showRolePicker && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setShowRolePicker(false)} />
-                  <div className="absolute top-full left-0 mt-1 z-50 bg-bg-surface border border-border rounded-lg shadow-lg p-3 w-[430px]">
+                  <div className="fixed left-4 right-4 top-32 z-50 max-h-[calc(100dvh-10rem)] overflow-y-auto bg-bg-surface border border-border rounded-lg shadow-lg p-3 sm:absolute sm:top-full sm:left-0 sm:right-auto sm:mt-1 sm:w-[430px]">
                     <CharacterAxesPicker {...draftAxes} onChange={setDraftAxes} compact />
                     <button
                       onClick={handleAdd}
@@ -203,12 +204,12 @@ export default function CharacterPanel({ project, view = 'generator', initialCha
                 </>
               )}
             </div>
-            <div className="flex items-center gap-2 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 flex-1">
               <CInput
                 value={hint}
                 onChange={e => setHint(e.target.value)}
                 placeholder="角色要求（可选）"
-                className="w-48 px-2 py-1.5 bg-bg-surface border border-border rounded text-xs text-text-primary focus:outline-none focus:border-accent"
+                className="min-w-0 w-full sm:w-48 px-2 py-1.5 bg-bg-surface border border-border rounded text-xs text-text-primary focus:outline-none focus:border-accent"
               />
               <div className="relative">
                 <button
@@ -221,7 +222,7 @@ export default function CharacterPanel({ project, view = 'generator', initialCha
                 {showDimPicker && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setShowDimPicker(false)} />
-                    <div className="absolute top-full left-0 mt-1 z-50 bg-bg-surface border border-border rounded-lg shadow-lg p-3 w-[420px]">
+                    <div className="fixed left-4 right-4 top-32 z-50 max-h-[calc(100dvh-10rem)] overflow-y-auto bg-bg-surface border border-border rounded-lg shadow-lg p-3 sm:absolute sm:top-full sm:left-auto sm:right-0 sm:mt-1 sm:w-[420px]">
                       <CharacterDimensionPicker selected={genDims} onChange={setGenDims} />
                     </div>
                   </>
@@ -307,6 +308,8 @@ export default function CharacterPanel({ project, view = 'generator', initialCha
         </p>
       )}
 
+      {view === 'generator' && <CopilotGenerationStatus busy={copilot.busy && !copilot.pendingCandidates.length} onStop={copilot.stop} />}
+
       {view === 'generator' && pendingCharacterCandidates.map(candidate => (
         <CharacterCandidateCard
           key={candidate.event.id}
@@ -335,9 +338,9 @@ export default function CharacterPanel({ project, view = 'generator', initialCha
           </p>
         </div>
       ) : (
-        <div className="flex gap-4">
+        <div className="flex flex-col md:flex-row gap-4">
           {/* 左侧角色列表 */}
-          <div className="w-40 shrink-0 space-y-0.5">
+          <div className="w-full md:w-40 shrink-0 space-y-0.5">
             {displayedChars.map((c, i) => {
               const active = selected === c.id
               const colorClass = GLYPH_COLORS[i % GLYPH_COLORS.length]
@@ -408,16 +411,15 @@ function CharacterCandidateCard({
         <h3 className="text-sm font-semibold text-text-primary">待确认 · {candidate.payload.label}</h3>
         <span className="text-[11px] text-text-muted">
           {candidate.payload.contextEvidence
-            ? `约 ${candidate.payload.contextEvidence.estimatedInputTokens.toLocaleString()} tokens`
+            ? `参考资料约 ${candidate.payload.contextEvidence.estimatedInputTokens.toLocaleString()} tokens（非实际用量）`
             : `${candidate.payload.contextSources.length} 个输入来源`}
         </span>
       </div>
-      <CTextarea
-        aria-label="角色候选内容"
+      <CandidateDraftEditor
+        payload={candidate.payload}
         value={candidate.event.content}
         disabled={copilot.busy}
-        onChange={event => { void copilot.updateCandidate(candidate.event.id!, event.target.value) }}
-        className="min-h-72 w-full resize-y font-mono text-xs leading-5"
+        onChange={content => { void copilot.updateCandidate(candidate.event.id!, content) }}
       />
       <HarnessEvidencePanel
         contextEvidence={candidate.payload.contextEvidence}

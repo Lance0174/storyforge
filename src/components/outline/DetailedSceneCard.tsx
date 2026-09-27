@@ -25,13 +25,13 @@ interface Props {
 export default function DetailedSceneCard({ scene, index, onUpdate, onDelete }: Props) {
   return (
     <div className="bg-bg-surface border border-border rounded-xl p-3 space-y-2">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="text-text-muted text-xs">#{index + 1}</span>
         <input
           value={scene.title}
           onChange={event => onUpdate({ title: event.target.value })}
           placeholder="场景标题..."
-          className="flex-1 px-2 py-1 bg-bg-base border border-border rounded text-sm font-medium text-text-primary focus:outline-none focus:border-accent"
+          className="min-w-0 basis-40 flex-1 px-2 py-1 bg-bg-base border border-border rounded text-sm font-medium text-text-primary focus:outline-none focus:border-accent"
         />
         <select
           aria-label="场景节奏"
@@ -66,13 +66,13 @@ export default function DetailedSceneCard({ scene, index, onUpdate, onDelete }: 
           value={scene.location}
           onChange={event => onUpdate({ location: event.target.value })}
           placeholder="📍 地点"
-          className="px-2 py-1 bg-bg-base border border-border rounded text-xs text-text-primary focus:outline-none focus:border-accent"
+          className="min-w-0 px-2 py-1 bg-bg-base border border-border rounded text-xs text-text-primary focus:outline-none focus:border-accent"
         />
         <input
           value={scene.conflict}
           onChange={event => onUpdate({ conflict: event.target.value })}
           placeholder="⚔ 核心冲突"
-          className="px-2 py-1 bg-bg-base border border-border rounded text-xs text-text-primary focus:outline-none focus:border-accent"
+          className="min-w-0 px-2 py-1 bg-bg-base border border-border rounded text-xs text-text-primary focus:outline-none focus:border-accent"
         />
       </div>
       {scene.notes && (

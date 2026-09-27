@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { CTextarea } from '../shared/CompositionInput'
 import { FIELD_REGISTRY } from '../../lib/registry/field-registry'
 import { MORAL_AXIS_LABELS, ORDER_AXIS_LABELS, ROLE_WEIGHT_LABELS } from '../../lib/character/character-axes'
 import type { MasterCandidatePayload } from '../../lib/agent/orchestrator'
@@ -22,6 +23,15 @@ export default function CandidateDraftEditor({
   onChange: (value: string) => void
 }) {
   const [raw, setRaw] = useState(false)
+  const textField = useMemo(() => {
+    if (payload.skillId !== 'world-origin.story-core') return null
+    try {
+      const result = JSON.parse(value)
+      return result?.field === payload.storyCoreField && typeof result.value === 'string'
+        ? result as { field: string; value: string }
+        : null
+    } catch { return null }
+  }, [payload.skillId, payload.storyCoreField, value])
   const table =
     payload.skillId === 'character.create'
       ? 'characters'
@@ -70,7 +80,7 @@ export default function CandidateDraftEditor({
   }
   return (
     <div>
-      {parsed && (
+      {(parsed || textField) && (
         <button
           type="button"
           className="mb-2 text-xs text-accent"
@@ -79,7 +89,15 @@ export default function CandidateDraftEditor({
           {raw ? '返回内容编辑' : '查看原始结构'}
         </button>
       )}
-      {parsed && !raw ? (
+      {textField && !raw ? (
+        <CTextarea
+          aria-label={`${payload.label}候选内容`}
+          value={textField.value}
+          disabled={disabled}
+          onChange={event => onChange(JSON.stringify({ ...textField, value: event.target.value }, null, 2))}
+          className="min-h-40 w-full resize-y rounded border border-border p-3 text-sm leading-7"
+        />
+      ) : parsed && !raw ? (
         <div className="space-y-4" aria-label={`${payload.label}候选内容`}>
           {parsed.rows.map((row, index) => (
             <fieldset key={index} className="space-y-3 rounded border border-border p-3" disabled={disabled}>
@@ -106,7 +124,7 @@ export default function CandidateDraftEditor({
                         ))}
                       </select>
                     ) : (
-                      <textarea
+                      <CTextarea
                         aria-label={`${label} · 候选 ${index + 1}`}
                         value={text}
                         rows={key === 'title' || key === 'name' ? 1 : 3}
@@ -146,7 +164,7 @@ export default function CandidateDraftEditor({
           ))}
         </div>
       ) : (
-        <textarea
+        <CTextarea
           aria-label={`${payload.label}候选内容`}
           value={value}
           disabled={disabled}

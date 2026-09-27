@@ -194,6 +194,7 @@ export default function ChaptersListPanel({ project, initialNodeId }: Props) {
 
   return (
     <PanelLayout
+      mobileStack
       sidebar={sidebarContent}
       sidebarTitle="📖 章节"
       defaultWidth={200}

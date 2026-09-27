@@ -1461,7 +1461,7 @@ test('故事核心面板通过主 Agent 生成单字段候选，刷新恢复后�
     ...modelCandidate,
     value: '作者确认版：守灯人为找回父亲主动典当的记忆追查潮汐钟，并拒绝让港城继续以遗忘换取安稳。',
   }
-  await candidate.fill(JSON.stringify(edited, null, 2))
+  await candidate.fill(edited.value)
   await page.getByRole('button', { name: '采纳', exact: true }).click()
   await expect(page.getByText(edited.value, { exact: true })).toBeVisible()
   await expect(candidate).toHaveCount(0)
@@ -1799,25 +1799,26 @@ test('分步骤角色面板通过 character.create Skill 生成、恢复并确�
   await expect(page.getByText('角色生成 · 0', { exact: true })).toBeVisible()
 
   const request = page.getByPlaceholder('角色要求（可选）')
-  const candidate = page.getByRole('textbox', { name: '角色候选内容' })
+  const candidate = page.getByRole('textbox', { name: '姓名 · 候选 1', exact: true })
   await request.fill('设计一名守灯钟匠，克制寡言')
   await page.getByRole('button', { name: 'AI 设计角色', exact: true }).click()
-  await expect(candidate).toContainText('模型守灯人')
+  await expect(candidate).toHaveValue('模型守灯人')
   await page.reload()
   await openSidebarLeaf(page, '角色设计', '角色生成')
-  await expect(candidate).toContainText('模型守灯人')
+  await expect(candidate).toHaveValue('模型守灯人')
   await page.getByRole('button', { name: '拒绝', exact: true }).click()
   await expect(page.getByText('角色生成 · 0', { exact: true })).toBeVisible()
 
   await request.fill('重新设计一名守灯钟匠')
   await page.getByRole('button', { name: 'AI 设计角色', exact: true }).click()
-  await expect(candidate).toContainText('模型守灯人')
+  await expect(candidate).toHaveValue('模型守灯人')
   const edited = {
     ...modelCandidate,
     name: '沈砚灯',
     shortDescription: '作者确认的旧港守灯钟匠。',
   }
-  await candidate.fill(JSON.stringify(edited, null, 2))
+  await candidate.fill(edited.name)
+  await page.getByRole('textbox', { name: '简介 · 候选 1', exact: true }).fill(edited.shortDescription)
   await page.getByRole('button', { name: '采纳', exact: true }).click()
 
   await expect(page.getByText('角色生成 · 1', { exact: true })).toBeVisible()
@@ -1900,7 +1901,7 @@ test('已有角色补全通过定向 Skill 恢复候选，确认后只写入所�
   await openSidebarLeaf(page, '角色设计', '角色生成')
   await page.getByPlaceholder('角色要求（可选）').fill('设计一名守灯钟匠')
   await page.getByRole('button', { name: 'AI 设计角色', exact: true }).click()
-  await expect(page.getByRole('textbox', { name: '角色候选内容' })).toContainText('模型守灯人')
+  await expect(page.getByRole('textbox', { name: '姓名 · 候选 1', exact: true })).toHaveValue('模型守灯人')
   await page.getByRole('button', { name: '采纳', exact: true }).click()
   await expect(page.getByText('角色生成 · 1', { exact: true })).toBeVisible()
 

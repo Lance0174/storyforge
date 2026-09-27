@@ -170,17 +170,18 @@ describe('R-HARNESS31 · 故事核心面板统一进入主 Agent Harness', () =>
     const host = await renderPanel()
 
     expect(host.textContent).toContain('待确认 · 一句话故事')
-    expect(host.textContent).toContain('约 628 tokens')
+    expect(host.textContent).toContain('参考资料约 628 tokens（非实际用量）')
     expect(host.textContent).toContain('本次实际输入证据')
     expect(host.textContent).toContain('因预算移除：existingVolumeOutlines')
 
     const editor = host.querySelector<HTMLTextAreaElement>(
       'textarea[aria-label="一句话故事候选内容"]',
     )!
-    await act(async () => setInputValue(editor, '{"field":"logline","value":"作者修订候选"}'))
+    expect(editor.value).toBe('候选的一句话故事')
+    await act(async () => setInputValue(editor, '作者修订候选'))
     expect(mocks.copilot.updateCandidate).toHaveBeenCalledWith(
       41,
-      '{"field":"logline","value":"作者修订候选"}',
+      JSON.stringify({ field: 'logline', value: '作者修订候选' }, null, 2),
     )
 
     const buttons = Array.from(host.querySelectorAll('button'))

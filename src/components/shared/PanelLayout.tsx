@@ -16,6 +16,8 @@ interface Props {
   sidebarTitle?: string
   /** 额外的 className */
   className?: string
+  /** Longform steps stack the chapter picker above the editor on narrow screens. */
+  mobileStack?: boolean
 }
 
 /**
@@ -33,6 +35,7 @@ export default function PanelLayout({
   maxWidth = 400,
   sidebarTitle,
   className = '',
+  mobileStack = false,
 }: Props) {
   const [sidebarWidth, setSidebarWidth] = useState(defaultWidth)
   const [collapsed, setCollapsed] = useState(false)
@@ -67,11 +70,11 @@ export default function PanelLayout({
   }, [dragging, minWidth, maxWidth])
 
   return (
-    <div ref={containerRef} className={`flex h-full ${className}`}>
+    <div ref={containerRef} className={`flex h-full ${mobileStack ? 'sf-step-panel' : ''} ${className}`}>
       {/* 侧栏 */}
       {!collapsed && (
         <div
-          className="shrink-0 flex flex-col border-r border-border bg-bg-surface overflow-hidden"
+          className="sf-step-sidebar shrink-0 flex flex-col border-r border-border bg-bg-surface overflow-hidden"
           style={{ width: sidebarWidth }}
         >
           {/* 侧栏头 */}
@@ -98,7 +101,7 @@ export default function PanelLayout({
       {!collapsed && (
         <div
           onMouseDown={handleMouseDown}
-          className={`w-1 shrink-0 cursor-col-resize transition-colors ${
+          className={`sf-step-divider w-1 shrink-0 cursor-col-resize transition-colors ${
             dragging ? 'bg-accent' : 'bg-transparent hover:bg-accent/30'
           }`}
         />

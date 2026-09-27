@@ -130,7 +130,9 @@ export function buildChapterContentPrompt(
     continuity: options?.continuity,
     budgetTokens: options?.continuityBudgetTokens,
   })
-  const guarded = appendSimplifiedChineseOutputConstraint(messages)
+  const guarded = appendSimplifiedChineseOutputConstraint(userHint?.trim() ? messages.map(message => message.role === 'system'
+    ? { ...message, content: `${message.content}\n\n本轮作者明确指定的篇幅、文风、章节收尾和禁止事项优先于模板默认值。达到作者指定的结束位置就停止，不为凑默认字数追加情节；仍须遵守作品信息边界。` }
+    : message) : messages)
   return options?.skipContinuityEnvelope
     ? guarded
     : injectContinuityEnvelope(guarded, tpl.continuityMode, envelope)
@@ -159,7 +161,9 @@ export function buildContinuePrompt(
     currentDraftTail: existingContent.slice(-1600),
     budgetTokens: options?.continuityBudgetTokens,
   })
-  const guarded = appendSimplifiedChineseOutputConstraint(messages)
+  const guarded = appendSimplifiedChineseOutputConstraint(userHint?.trim() ? messages.map(message => message.role === 'system'
+    ? { ...message, content: `${message.content}\n\n本轮作者明确指定的篇幅、文风、章节收尾和禁止事项优先于模板默认值。达到作者指定的结束位置就停止，不为凑默认字数追加情节；仍须遵守作品信息边界。` }
+    : message) : messages)
   return options?.skipContinuityEnvelope
     ? guarded
     : injectContinuityEnvelope(guarded, tpl.continuityMode, envelope)

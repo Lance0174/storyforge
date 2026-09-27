@@ -1,6 +1,7 @@
 import { db } from '../../db/schema'
+import { normalizeProseForEditorV1 } from '../../utils/html'
 import { adopt } from '../../registry/adopt'
-import { hashChapterText, CHAPTER_TEXT_NORMALIZATION_VERSION } from '../../ai/chapter-memory/text-normalization'
+import { hashChapterText, normalizeChapterText, CHAPTER_TEXT_NORMALIZATION_VERSION } from '../../ai/chapter-memory/text-normalization'
 import type { AgentConversation, AgentEvent, Chapter, ChatMessage, WorkspaceScope } from '../../types'
 import type {
   AgentRunFormalAIEntryBindingV1,
@@ -14,8 +15,11 @@ import {
   appendAgentRunEventV1,
   createAgentRunV1,
   readAgentRunV1,
+  readVerifiedAgentRunInTransactionV1,
+  appendPrivilegedAgentRunEventInTransactionV1,
   type AgentRunSnapshotV1,
 } from './event-store'
+import { parseAgentRunEventV1 } from './event-schema'
 import { createVerificationReceiptV1 } from './verification-receipt'
 import { hashCanonicalValue } from './hash'
 import { createContextManifestFromAssemblyV1, createContextManifestV2FromV1 } from './context-manifest'
@@ -868,6 +872,75 @@ export async function readLatestProseGenerationCandidateV1(input: {
     ))
     .sort((left, right) => right.event.createdAt - left.event.createdAt)
   return matches[0]?.value ?? null
+}
+
+/** Preserve the generation receipt and append an explicit author revision before adoption. */
+export async function reviseProseGenerationCandidateV1(input: {
+  scope: WorkspaceScope
+  candidate: ProseGenerationCandidateV1
+  outputText: string
+}): Promise<ProseGenerationCandidateV1> {
+  const previous = input.candidate
+  const outputText = input.outputText
+  if (!normalizeProseForEditorV1(outputText).trim()) throw new Error('正文候选不能为空。')
+  if (outputText === previous.outputText) return previous
+  const chapter = await db.chapters.get(previous.chapterId)
+  if (!chapter || !await assertRecordInScope(input.scope, 'chapters', chapter, { owner: 'work' })) {
+    throw new Error('正文候选的章节不存在或越界。')
+  }
+  await assertWorkspaceContentRevisionFreshV1(previous.contentRevision, {
+    scope: input.scope, worldGroupId: previous.worldGroupId,
+  })
+  if (!await isProseGenerationCandidateCurrentV1(previous)) throw new Error('正文候选已过期，请重新生成。')
+  const outputTextHash = await hashCanonicalValue(outputText)
+  const revised: ProseGenerationCandidateV1 = {
+    ...previous,
+    outputText,
+    outputTextHash,
+    expectedContentHash: await hashChapterText(previous.operation === 'continue'
+      ? [normalizeChapterText(chapter.content ?? ''), normalizeProseForEditorV1(outputText)].filter(Boolean).join('\n')
+      : normalizeProseForEditorV1(outputText)),
+    durable: { ...previous.durable, candidateHash: outputTextHash },
+  }
+  if (!await isProseGenerationCandidateCurrentV1(revised)) {
+    throw new Error('修订内容未通过信息边界校验，或旧候选需要重新评审。')
+  }
+  const events = await readOwnedRows<AgentEvent>(input.scope, 'agentEvents', { owner: 'work' })
+  const event = events.find(row => {
+    try {
+      const value = JSON.parse(row.payload)
+      return row.kind === 'candidate' && row.durableRunId === previous.durable.runId
+        && isProseGenerationCandidate(value)
+        && value.durable.candidateHash === previous.durable.candidateHash
+        && value.chapterId === previous.chapterId
+    } catch { return false }
+  })
+  if (!event?.id) throw new Error('未找到可修订的正文候选。')
+  if (await hashCanonicalValue(JSON.parse(event.payload)) !== await hashCanonicalValue(previous)) {
+    throw new Error('正文候选与已保存的证据不一致。')
+  }
+  await db.transaction('rw', scopeTransactionTables(db.agentEvents, db.agentRuns, db.agentRunEvents), async () => {
+    const snapshot = await readVerifiedAgentRunInTransactionV1(input.scope, previous.durable.runId)
+    assertProseGenerationExecutionBindingsV1(snapshot)
+    if (requiresSemanticReview(snapshot)) throw new Error('该候选需要重新语义评审，不能直接修订采纳。')
+    const step = snapshot.projection.steps[PROSE_GENERATION_STEP_ID_V1]
+    const latestEvent = await db.agentEvents.get(event.id!)
+    if (step?.status !== 'awaiting_confirmation'
+      || step.candidateHash !== previous.durable.candidateHash
+      || latestEvent?.payload !== event.payload) throw new Error('正文候选已变化，请重新确认。')
+    await appendPrivilegedAgentRunEventInTransactionV1(snapshot, parseAgentRunEventV1({
+      version: 1, runId: snapshot.run.id, sequence: snapshot.projection.lastSequence + 1,
+      generation: snapshot.projection.generation, projectId: snapshot.run.projectId,
+      worldGroupId: snapshot.run.worldGroupId ?? null, contractHash: snapshot.run.contractHash,
+      type: 'candidate.revised', createdAt: Date.now(),
+      payload: { stepId: PROSE_GENERATION_STEP_ID_V1, attempt: step.attempt,
+        previousCandidateHash: previous.durable.candidateHash, candidateHash: outputTextHash },
+    }))
+    await db.agentEvents.update(event.id!, {
+      content: `作者修订正文候选 ${outputText.length} 字`, payload: JSON.stringify(revised),
+    })
+  })
+  return revised
 }
 
 export async function isProseGenerationCandidateCurrentV1(
