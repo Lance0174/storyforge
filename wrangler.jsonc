@@ -1,0 +1,16 @@
+// Cloudflare Workers 部署配置：Worker（worker.ts）+ 静态资产（dist）
+// Git 自动构建用 Workers Builds：build 命令 `npm ci && npm run build`，部署命令 `npx wrangler deploy`
+{
+  "name": "storyforge",
+  "compatibility_date": "2026-09-01",
+  "main": "worker.ts",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "none"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
