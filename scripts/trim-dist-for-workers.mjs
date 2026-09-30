@@ -2,16 +2,18 @@
  * 部署 Cloudflare Workers 前修剪 dist：
  * Workers 静态资产单文件上限 25 MiB，超限文件（目前是社区原型
  * tidewake-town 的 release.storyforge-product.json，约 58.5 MiB）会被
- * wrangler 整体拒绝部署。这里删除超限文件，并同步移除 catalog.json
- * 里指向它们的条目，让社区原型画廊显示为空列表而不是加载失败的坏条目。
+ * wrangler 整体拒绝部署。这里把它们从 dist 移除，改由 R2 提供
+ * （worker.ts 会在资产未命中时查 BUCKET）。
+ *
+ * 配套：先运行 `npm run upload:r2` 把 public/ 下的超限源文件上传到
+ * R2 bucket storyforge-prototypes（键 = public 相对路径 = 资产路径）。
  */
-import { readdirSync, statSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { readdirSync, statSync, existsSync, rmSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
 const DIST = new URL('../dist', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
+const PUBLIC = new URL('../public', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
 const LIMIT = 24 * 1024 * 1024
-
-const removed = new Set()
 
 // 先记下超限文件再删除，避免边遍历边删导致后续 stat 报错
 const oversized = []
@@ -28,31 +30,18 @@ function sizedWalk(dir) {
 }
 
 sizedWalk(DIST)
-const statSyncCache = new Map(oversized)
-for (const full of statSyncCache.keys()) {
+for (const [full, size] of oversized) {
   const rel = '/' + relative(DIST, full).replaceAll('\\', '/')
   rmSync(full)
-  removed.add(rel)
-  console.log(`removed ${rel} (${(statSyncCache.get(full) / 1048576).toFixed(1)} MiB)`)
+  console.log(`removed ${rel} (${(size / 1048576).toFixed(1)} MiB) — 将由 R2 提供`)
+  if (!existsSync(join(PUBLIC, rel))) {
+    console.log(`  警告：public/${rel.slice(1)} 不存在，npm run upload:r2 不会覆盖该路径，请确认来源`)
+  }
 }
 
-if (removed.size === 0) {
+if (oversized.length === 0) {
   console.log('no oversized assets found')
 } else {
-  // 清理 catalog.json 中指向已删除文件的条目
-  const catalogPath = join(DIST, 'prototypes', 'catalog.json')
-  try {
-    const catalog = JSON.parse(readFileSync(catalogPath, 'utf-8'))
-    const before = catalog.prototypes?.length ?? 0
-    catalog.prototypes = (catalog.prototypes ?? []).filter(
-      (p) => !removed.has(p.releasePath),
-    )
-    if (catalog.prototypes.length !== before) {
-      writeFileSync(catalogPath, JSON.stringify(catalog, null, 2) + '\n')
-      console.log(`catalog.json: ${before} -> ${catalog.prototypes.length} prototypes`)
-    }
-  } catch {
-    console.log('no catalog.json to clean (skipped)')
-  }
-  console.log(`done: ${removed.size} oversized file(s) removed`)
+  console.log(`done: ${oversized.length} oversized file(s) removed from dist`)
+  console.log('确保已上传：npm run upload:r2')
 }

@@ -10,6 +10,14 @@
     "html_handling": "auto-trailing-slash",
     "not_found_handling": "none"
   },
+  // 超过 25 MiB 单文件上限的资产（社区原型数据等）从这里提供，
+  // 键 = 去掉 /storyforge 前缀的资产路径；部署前需先创建 bucket 并运行 npm run upload:r2
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "storyforge-prototypes"
+    }
+  ],
   "observability": {
     "enabled": true
   }

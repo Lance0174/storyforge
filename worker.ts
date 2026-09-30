@@ -66,8 +66,17 @@ async function handleProxy(request: Request, url: URL, route: string): Promise<R
   })
 }
 
+interface R2ObjectLike {
+  body: ReadableStream
+  size: number
+  httpEtag?: string
+  httpMetadata?: { contentType?: string } | null
+}
+
 interface Env {
   ASSETS: { fetch(request: RequestInfo | URL): Promise<Response> }
+  // 可选：超大文件（>25 MiB 无法进静态资产）由 R2 提供，键为去掉 base 后的资产路径
+  BUCKET?: { get(key: string): Promise<R2ObjectLike | null> }
 }
 
 export default {
@@ -91,7 +100,23 @@ export default {
     assetUrl.search = url.search
     let res = await env.ASSETS.fetch(new Request(assetUrl, request))
 
-    // 4) 未命中且最后一段无扩展名 → SPA 兜底到入口 index.html（BrowserRouter 深层路由刷新）
+    // 4) 资产未命中时查 R2（超过 25 MiB 无法进静态资产的大文件，如社区原型数据）
+    if (res.status === 404 && env.BUCKET) {
+      const obj = await env.BUCKET.get(assetUrl.pathname.slice(1))
+      if (obj) {
+        const headers = new Headers()
+        headers.set('content-type', obj.httpMetadata?.contentType ?? 'application/octet-stream')
+        headers.set('content-length', String(obj.size))
+        headers.set('cache-control', 'public, max-age=300')
+        if (obj.httpEtag) headers.set('etag', obj.httpEtag)
+        return new Response(request.method === 'HEAD' ? null : obj.body, {
+          status: 200,
+          headers,
+        })
+      }
+    }
+
+    // 5) 仍未命中且最后一段无扩展名 → SPA 兜底到入口 index.html（BrowserRouter 深层路由刷新）
     if (res.status === 404) {
       const last = assetUrl.pathname.split('/').pop() ?? ''
       if (!last.includes('.')) {
