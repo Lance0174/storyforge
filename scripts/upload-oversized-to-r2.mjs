@@ -46,7 +46,7 @@ for (const [full, size] of files) {
   const r = spawnSync(
     'npx',
     ['wrangler', 'r2', 'object', 'put', `${BUCKET}/${key}`,
-      '--file', full, '--content-type', MIME[ext] ?? 'application/octet-stream'],
+      '--file', full, '--content-type', MIME[ext] ?? 'application/octet-stream', '--remote'],
     { stdio: 'inherit', shell: process.platform === 'win32' },
   )
   if (r.status !== 0) failed++
