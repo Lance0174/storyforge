@@ -39,8 +39,17 @@ jobs:
           CODE=$(curl -s -o /dev/null -w "%{http_code}" --retry 3 --retry-delay 3 "$B/storyforge/")
           echo "entry: $CODE"; [ "$CODE" = "200" ] || FAIL=1
           curl -s --retry 3 --retry-delay 3 "$B/storyforge/prototypes/catalog.json" | grep -q tidewake-town.v1 && echo "catalog: OK" || { echo "catalog: MISSING"; FAIL=1; }
-          curl -s -I --retry 3 --retry-delay 3 "$B/storyforge/prototypes/tidewake-town/release.storyforge-product.json" | grep -iE "content-length: 61294289" && echo "r2 object: OK" || { echo "r2 object: MISSING"; FAIL=1; }
+          echo "--- R2 object GET (app 实际使用的方式) ---"
+          GET_HEADERS=$(curl -s -D - -o /dev/null --max-time 120 "$B/storyforge/prototypes/tidewake-town/release.storyforge-product.json")
+          echo "$GET_HEADERS" | grep -iE "^HTTP|content-length|content-type" || true
+          echo "$GET_HEADERS" | grep -qi "content-length: 61294289" && echo "r2 object: OK" || { echo "r2 object: MISMATCH"; FAIL=1; }
           SPA=$(curl -s -o /dev/null -w "%{http_code}" --retry 3 --retry-delay 3 "$B/storyforge/works/verify")
           echo "spa fallback: $SPA"; [ "$SPA" = "200" ] || FAIL=1
           echo "ai proxy probe (expect upstream 401 body): $(curl -s "$B/deepseek-proxy/v1/models" | head -c 60)"
+          echo "--- bucket listing via CF API ---"
+          curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/r2/buckets/storyforge-prototypes/objects?per_page=10" | head -c 600 || true
+          echo
           exit $FAIL
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: a40020a36963a4015c0aa463a6a40400
