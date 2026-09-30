@@ -32,3 +32,15 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: a40020a36963a4015c0aa463a6a40400
+      - name: Verify deployment
+        run: |
+          B=https://storyforge.wshao2003.workers.dev
+          FAIL=0
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" --retry 3 --retry-delay 3 "$B/storyforge/")
+          echo "entry: $CODE"; [ "$CODE" = "200" ] || FAIL=1
+          curl -s --retry 3 --retry-delay 3 "$B/storyforge/prototypes/catalog.json" | grep -q tidewake-town.v1 && echo "catalog: OK" || { echo "catalog: MISSING"; FAIL=1; }
+          curl -s -I --retry 3 --retry-delay 3 "$B/storyforge/prototypes/tidewake-town/release.storyforge-product.json" | grep -iE "content-length: 61294289" && echo "r2 object: OK" || { echo "r2 object: MISSING"; FAIL=1; }
+          SPA=$(curl -s -o /dev/null -w "%{http_code}" --retry 3 --retry-delay 3 "$B/storyforge/works/verify")
+          echo "spa fallback: $SPA"; [ "$SPA" = "200" ] || FAIL=1
+          echo "ai proxy probe (expect upstream 401 body): $(curl -s "$B/deepseek-proxy/v1/models" | head -c 60)"
+          exit $FAIL
